@@ -9,6 +9,7 @@ import os
 load_dotenv()
 
 # 모델 Base 가져오기 (나중에 모델 만들면 여기 추가)
+from app.models import User
 from app.database import Base
 
 config = context.config
