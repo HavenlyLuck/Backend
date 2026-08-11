@@ -13,6 +13,7 @@ def hash_password(password: str) -> str:
 def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
 
+# JWT 토큰 생성
 def create_token(data: dict, expires_delta: int = None) -> str:
     to_encode = data.copy()
     expire = datetime.now(timezone.utc) + timedelta(

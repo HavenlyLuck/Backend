@@ -18,6 +18,7 @@ class UserLogin(BaseModel):        # 로그인 요청
 class TokenResponse(BaseModel):    # 로그인 응답 (토큰 반환)
     access_token: str
     token_type: str
+    is_admin: bool
 
 class UserResponse(BaseModel):
     user_id: int

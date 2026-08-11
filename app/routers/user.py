@@ -48,10 +48,11 @@ def login(body: UserLogin, db: Session = Depends(get_db)):
     # JWT 토큰 발급
     token = create_token({
         "sub": str(user.user_id),
-        "type": "user"
+        "type": "user",
+        "is_admin": user.is_admin
     })
 
-    return {"access_token": token, "token_type": "bearer"}
+    return {"access_token": token, "token_type": "bearer", "is_admin": user.is_admin}
 
 # 회원가입 중복확인
 @router.post("/duplCheck")
