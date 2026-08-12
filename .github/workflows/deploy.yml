@@ -49,7 +49,7 @@ jobs:
           pip install -r requirements.txt
 
       - name: Azure 로그인
-        uses: azure/login@v1
+        uses: azure/login@v3
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
 
