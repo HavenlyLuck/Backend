@@ -1,5 +1,5 @@
 from pydantic import BaseModel, EmailStr
-from datetime import datetime  # 이거 추가
+from datetime import datetime
 from typing import Literal
 
 class UserSignup(BaseModel):
