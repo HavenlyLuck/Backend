@@ -4,15 +4,15 @@ on:
   pull_request:
     branches:
       - main
-    types:
-      - closed # PR이 닫혔을 때 (머지 포함)
+  push:
+    branches:
+      - main # PR이 main에 머지되면 push 이벤트로 배포 (fork PR도 시크릿 정상 사용 가능)
 
 jobs:
   # CI - 테스트 (PR 올라올 때마다 실행)
   test:
     runs-on: ubuntu-latest
-    # PR이 열려있을 때만 테스트
-    if: github.event.pull_request.merged == false || github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -31,10 +31,10 @@ jobs:
           pip install flake8
           flake8 app/ --max-line-length=100 --ignore=E501
 
-  # CD - 배포 (main에 머지됐을 때만 실행)
+  # CD - 배포 (main에 push(머지 포함)됐을 때만 실행)
   deploy:
     runs-on: ubuntu-latest
-    if: github.event.pull_request.merged == true
+    if: github.event_name == 'push'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
