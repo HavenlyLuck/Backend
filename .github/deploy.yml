@@ -1,0 +1,94 @@
+name: CI/CD Deploy to Azure
+
+on:
+  pull_request:
+    branches:
+      - main
+    types:
+      - closed # PR이 닫혔을 때 (머지 포함)
+
+jobs:
+  # CI - 테스트 (PR 올라올 때마다 실행)
+  test:
+    runs-on: ubuntu-latest
+    # PR이 열려있을 때만 테스트
+    if: github.event.pull_request.merged == false || github.event_name == 'pull_request'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python 세팅
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: 패키지 설치
+        run: |
+          pip install -r requirements.txt
+
+      - name: 문법 검사 (lint)
+        run: |
+          pip install flake8
+          flake8 app/ --max-line-length=100 --ignore=E501
+
+  # CD - 배포 (main에 머지됐을 때만 실행)
+  deploy:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.merged == true
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python 세팅
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.11"
+
+      - name: 패키지 설치
+        run: |
+          pip install -r requirements.txt
+
+      - name: Azure 로그인
+        uses: azure/login@v1
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Azure Web App 배포
+        uses: azure/webapps-deploy@v2
+        with:
+          app-name: "havenlyluck"
+          package: .
+
+      - name: 환경변수 설정
+        uses: azure/appservice-settings@v1
+        with:
+          app-name: "havenlyluck"
+          app-settings-json: |
+            [
+              { "name": "DB_HOST", "value": "${{ secrets.DB_HOST }}" },
+              { "name": "DB_USER", "value": "${{ secrets.DB_USER }}" },
+              { "name": "DB_PASSWORD", "value": "${{ secrets.DB_PASSWORD }}" },
+              { "name": "DB_NAME", "value": "${{ secrets.DB_NAME }}" },
+              { "name": "DB_PORT", "value": "3306" },
+              { "name": "SECRET_KEY", "value": "${{ secrets.SECRET_KEY }}" },
+              { "name": "ALGORITHM", "value": "HS256" },
+              { "name": "ACCESS_TOKEN_EXPIRE_MINUTES", "value": "60" },
+              { "name": "CLOUDINARY_CLOUD_NAME", "value": "${{ secrets.CLOUDINARY_CLOUD_NAME }}" },
+              { "name": "CLOUDINARY_API_KEY", "value": "${{ secrets.CLOUDINARY_API_KEY }}" },
+              { "name": "CLOUDINARY_API_SECRET", "value": "${{ secrets.CLOUDINARY_API_SECRET }}" }
+
+            ]
+
+      - name: Alembic 마이그레이션
+        run: |
+          python3 -m alembic upgrade head
+        env:
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASSWORD: ${{ secrets.DB_PASSWORD }}
+          DB_NAME: ${{ secrets.DB_NAME }}
+          DB_PORT: 3306
+          SECRET_KEY: ${{ secrets.SECRET_KEY }}
+          CLOUDINARY_CLOUD_NAME: ${{ secrets.CLOUDINARY_CLOUD_NAME }}
+          CLOUDINARY_API_KEY: ${{ secrets.CLOUDINARY_API_KEY }}
+          CLOUDINARY_API_SECRET: ${{ secrets.CLOUDINARY_API_SECRET }}
