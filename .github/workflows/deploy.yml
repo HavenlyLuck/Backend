@@ -49,9 +49,10 @@ jobs:
           pip install -r requirements.txt
 
       - name: Azure 로그인
-        uses: azure/login@v3
+        uses: azure/login@v1
         with:
           creds: ${{ secrets.AZURE_CREDENTIALS }}
+          allow-no-subscriptions: true
 
       - name: Azure Web App 배포
         uses: azure/webapps-deploy@v2
