@@ -14,6 +14,7 @@ class RaffleProduct(Base):
     image_url             = Column(String(500), nullable=True)
     status                = Column(Enum("open", "completed", "cancelled", name="raffle_status"), nullable=False, default="open", server_default="open")
     starts_at             = Column(DateTime, nullable=False)
+    ends_at                = Column(DateTime, nullable=False)   # starts_at + 24시간
     drawn_at              = Column(DateTime, nullable=True)
     created_at            = Column(DateTime, server_default=func.now())
     updated_at            = Column(DateTime, server_default=func.now(), onupdate=func.now())

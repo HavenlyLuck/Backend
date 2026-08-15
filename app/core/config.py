@@ -18,3 +18,8 @@ class Settings(BaseSettings):
         env_file = ".env"
 
 settings = Settings()
+
+# 응모권 1장당 가격 (운포인트, 고정값)
+RAFFLE_TICKET_PRICE = 1000
+# 응모 상품 진행 기간 (등록 시점 기준)
+RAFFLE_DURATION_HOURS = 24
