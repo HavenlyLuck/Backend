@@ -1,10 +1,15 @@
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import HTTPBearer
+from jose import JWTError
 from sqlalchemy.orm import Session
+from app.core.config import settings
 from app.database import get_db
 from app.models.user import User
-from app.schemas.user import UserSignup, UserLogin, UserResponse, TokenResponse, DuplCheckRequest, DuplCheckResponse
-from app.core.security import hash_password, verify_password, create_token
+from app.schemas.user import (
+    UserSignup, UserLogin, UserResponse, TokenResponse,
+    RefreshRequest, RefreshResponse, DuplCheckRequest, DuplCheckResponse,
+)
+from app.core.security import hash_password, verify_password, create_token, decode_token
 
 router = APIRouter()
 
@@ -45,14 +50,46 @@ def login(body: UserLogin, db: Session = Depends(get_db)):
     if not user or not verify_password(body.password, user.password):
         raise HTTPException(status_code=401, detail="아이디 또는 비밀번호가 올바르지 않습니다")
 
-    # JWT 토큰 발급
-    token = create_token({
+    # JWT 액세스 토큰 + 리프레시 토큰 발급
+    access_token = create_token({
+        "sub": str(user.user_id),
+        "type": "user",
+        "is_admin": user.is_admin
+    })
+    refresh_token = create_token(
+        {"sub": str(user.user_id), "type": "refresh"},
+        expires_delta=settings.REFRESH_TOKEN_EXPIRE_MINUTES,
+    )
+
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "is_admin": user.is_admin,
+    }
+
+# 액세스 토큰 재발급 (리프레시 토큰 이용)
+@router.post("/refresh", response_model=RefreshResponse)
+def refresh(body: RefreshRequest, db: Session = Depends(get_db)):
+    try:
+        payload = decode_token(body.refresh_token)
+    except JWTError:
+        raise HTTPException(status_code=401, detail="유효하지 않은 리프레시 토큰입니다")
+
+    if payload.get("type") != "refresh":
+        raise HTTPException(status_code=401, detail="유효하지 않은 리프레시 토큰입니다")
+
+    user = db.query(User).filter(User.user_id == int(payload.get("sub"))).first()
+    if not user:
+        raise HTTPException(status_code=401, detail="사용자를 찾을 수 없습니다")
+
+    access_token = create_token({
         "sub": str(user.user_id),
         "type": "user",
         "is_admin": user.is_admin
     })
 
-    return {"access_token": token, "token_type": "bearer", "is_admin": user.is_admin}
+    return {"access_token": access_token, "token_type": "bearer", "is_admin": user.is_admin}
 
 # 회원가입 중복확인
 @router.post("/duplCheck")

@@ -17,6 +17,15 @@ class UserLogin(BaseModel):        # 로그인 요청
 
 class TokenResponse(BaseModel):    # 로그인 응답 (토큰 반환)
     access_token: str
+    refresh_token: str
+    token_type: str
+    is_admin: bool
+
+class RefreshRequest(BaseModel):   # 토큰 재발급 요청
+    refresh_token: str
+
+class RefreshResponse(BaseModel):  # 토큰 재발급 응답
+    access_token: str
     token_type: str
     is_admin: bool
 
