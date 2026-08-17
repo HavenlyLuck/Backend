@@ -8,6 +8,12 @@ on:
     branches:
       - main # PR이 main에 머지되면 push 이벤트로 배포 (fork PR도 시크릿 정상 사용 가능)
 
+# 같은 브랜치를 대상으로 하는 워크플로우가 겹치면 동시에 돌리지 않고 순서대로 대기시켜서
+# Azure 배포 충돌(및 수동 재실행)을 방지
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   # CI - 테스트 (PR 올라올 때마다 실행)
   test:
