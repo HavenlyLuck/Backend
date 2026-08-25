@@ -18,3 +18,13 @@ class RaffleProduct(Base):
     drawn_at              = Column(DateTime, nullable=True)
     created_at            = Column(DateTime, server_default=func.now())
     updated_at            = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
+class RaffleEntry(Base):
+    __tablename__ = "raffle_entries"
+    entry_id           = Column(Integer, primary_key=True, autoincrement=True)
+    raffle_product_id  = Column(Integer, ForeignKey("raffle_products.raffle_product_id"), nullable=False)
+    user_id             = Column(Integer, ForeignKey("users.user_id"), nullable=False)
+    ticket_count         = Column(Integer, nullable=False)     # 이번 응모에서 구매한 응모권 수
+    points_spent          = Column(Integer, nullable=False)     # ticket_count * ticket_price 스냅샷
+    created_at             = Column(DateTime, server_default=func.now())

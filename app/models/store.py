@@ -14,3 +14,4 @@ class StoreProduct(Base):
     image_url         = Column(String(500), nullable=True)
     created_at        = Column(DateTime, server_default=func.now())
     updated_at        = Column(DateTime, server_default=func.now(), onupdate=func.now())
+    
