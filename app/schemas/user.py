@@ -1,6 +1,6 @@
 from pydantic import BaseModel, EmailStr
 from datetime import datetime
-from typing import Literal
+from typing import Literal, Optional
 
 class UserSignup(BaseModel):
     login_id: str
@@ -34,6 +34,8 @@ class UserResponse(BaseModel):
     login_id: str
     nickname: str
     email: str
+    avatar_url: Optional[str] = None
+    trade_count: int
 
     class Config:
         from_attributes = True

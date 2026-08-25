@@ -10,8 +10,14 @@ from app.schemas.user import (
     RefreshRequest, RefreshResponse, DuplCheckRequest, DuplCheckResponse,
 )
 from app.core.security import hash_password, verify_password, create_token, decode_token
+from app.core.dependencies import get_current_user
 
 router = APIRouter()
+
+# 내 프로필 조회
+@router.get("/me", response_model=UserResponse)
+def get_me(user: User = Depends(get_current_user)):
+    return user
 
 # 회원가입
 @router.post("/signup", response_model=UserResponse)
