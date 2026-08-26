@@ -47,6 +47,32 @@ class RaffleEntryResponse(BaseModel):
     ticket_count: int
     points_spent: int
     created_at: datetime
+    entry_number: int
+
+    class Config:
+        from_attributes = True
+
+
+# 응모권 구매 직후 응답 — 이 상품에서의 내 응모 번호(최초 응모 시 한 번만 부여, 이후 재구매해도 동일)와
+# 이 상품에 대한 누적 구매 수량을 함께 내려준다
+class RaffleEntryCreateResponse(RaffleEntryResponse):
+    total_ticket_count: int
+
+    class Config:
+        from_attributes = True
+
+
+class MyRaffleEntryResponse(BaseModel):
+    entry_id: int
+    raffle_product_id: int
+    ticket_count: int
+    points_spent: int
+    created_at: datetime
+    product_name: str
+    image_url: Optional[str] = None
+    price_krw: int
+    status: Literal["open", "completed", "cancelled"]
+    ends_at: datetime
 
     class Config:
         from_attributes = True

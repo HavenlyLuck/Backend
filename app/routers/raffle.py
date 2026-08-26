@@ -8,7 +8,10 @@ from app.database import get_db
 from app.core.dependencies import get_current_admin, get_current_user
 from app.core.config import RAFFLE_TICKET_PRICE
 from app.models.user import User
-from app.schemas.raffle import RaffleProductResponse, RaffleEntryCreate, RaffleEntryResponse
+from app.schemas.raffle import (
+    RaffleProductResponse, RaffleEntryCreate, RaffleEntryResponse,
+    RaffleEntryCreateResponse, MyRaffleEntryResponse,
+)
 from app.services.cloudinary import upload_image
 from app.crud import raffle as raffle_crud
 from app.crud import point as point_crud
@@ -63,7 +66,7 @@ def get_raffle_product(raffle_product_id: int, db: Session = Depends(get_db)):
 
 
 # 응모 참여 — 운포인트를 차감하고 응모권을 발급한다
-@router.post("/{raffle_product_id}/entries", response_model=RaffleEntryResponse)
+@router.post("/{raffle_product_id}/entries", response_model=RaffleEntryCreateResponse)
 def create_raffle_entry(
     raffle_product_id: int,
     payload: RaffleEntryCreate,
@@ -86,12 +89,18 @@ def create_raffle_entry(
     if sold + payload.ticket_count > product.total_slots:
         raise HTTPException(status_code=400, detail="남은 응모권이 부족합니다")
 
+    # 이미 이 상품에 응모한 적이 있으면 그 번호를 그대로 쓰고, 처음이면 새 번호를 부여한다
+    entry_number = raffle_crud.get_existing_entry_number(db, raffle_product_id, user.user_id)
+    if entry_number is None:
+        entry_number = raffle_crud.get_next_entry_number(db, raffle_product_id)
+
     entry = raffle_crud.create_raffle_entry(
         db,
         raffle_product_id=raffle_product_id,
         user_id=user.user_id,
         ticket_count=payload.ticket_count,
         points_spent=payload.ticket_count * product.ticket_price,
+        entry_number=entry_number,
     )
 
     try:
@@ -110,6 +119,7 @@ def create_raffle_entry(
 
     db.commit()
     db.refresh(entry)
+    entry.total_ticket_count = raffle_crud.get_user_total_ticket_count(db, raffle_product_id, user.user_id)
     return entry
 
 
@@ -121,3 +131,12 @@ def get_my_raffle_entries(
     user: User = Depends(get_current_user),
 ):
     return raffle_crud.get_user_raffle_entries(db, raffle_product_id, user.user_id)
+
+
+# 마이페이지 응모 내역 — 전체 상품에 걸친 내 응모 내역
+@router.get("/entries/me", response_model=list[MyRaffleEntryResponse])
+def get_my_raffle_entries_all(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    return raffle_crud.get_user_raffle_entries_all(db, user.user_id)

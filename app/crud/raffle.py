@@ -81,16 +81,47 @@ def create_raffle_entry(
     user_id: int,
     ticket_count: int,
     points_spent: int,
+    entry_number: int,
 ) -> RaffleEntry:
     entry = RaffleEntry(
         raffle_product_id=raffle_product_id,
         user_id=user_id,
         ticket_count=ticket_count,
         points_spent=points_spent,
+        entry_number=entry_number,
     )
     db.add(entry)
     db.flush()
     return entry
+
+
+def get_user_total_ticket_count(db: Session, raffle_product_id: int, user_id: int) -> int:
+    return (
+        db.query(func.coalesce(func.sum(RaffleEntry.ticket_count), 0))
+        .filter(RaffleEntry.raffle_product_id == raffle_product_id, RaffleEntry.user_id == user_id)
+        .scalar()
+    )
+
+
+# 이 유저가 이 상품에 이미 응모한 적이 있다면 그때 부여받은 응모 번호를 그대로 반환 (없으면 None)
+def get_existing_entry_number(db: Session, raffle_product_id: int, user_id: int) -> Optional[int]:
+    entry = (
+        db.query(RaffleEntry)
+        .filter(RaffleEntry.raffle_product_id == raffle_product_id, RaffleEntry.user_id == user_id)
+        .order_by(RaffleEntry.created_at.asc())
+        .first()
+    )
+    return entry.entry_number if entry else None
+
+
+# 이 상품에 처음 응모하는 유저에게 부여할 다음 응모 번호 (1번부터 시작, 지금까지 응모한 서로 다른 유저 수 + 1)
+def get_next_entry_number(db: Session, raffle_product_id: int) -> int:
+    distinct_users = (
+        db.query(func.count(func.distinct(RaffleEntry.user_id)))
+        .filter(RaffleEntry.raffle_product_id == raffle_product_id)
+        .scalar()
+    )
+    return distinct_users + 1
 
 
 def get_user_raffle_entries(db: Session, raffle_product_id: int, user_id: int) -> list[RaffleEntry]:
@@ -100,3 +131,23 @@ def get_user_raffle_entries(db: Session, raffle_product_id: int, user_id: int) -
         .order_by(RaffleEntry.created_at.desc())
         .all()
     )
+
+
+# 마이페이지 응모 내역 — 전체 상품에 걸친 내 응모를 상품 정보와 함께 조회
+def get_user_raffle_entries_all(db: Session, user_id: int) -> list[RaffleEntry]:
+    rows = (
+        db.query(RaffleEntry, RaffleProduct)
+        .join(RaffleProduct, RaffleEntry.raffle_product_id == RaffleProduct.raffle_product_id)
+        .filter(RaffleEntry.user_id == user_id)
+        .order_by(RaffleEntry.created_at.desc())
+        .all()
+    )
+    entries = []
+    for entry, product in rows:
+        entry.product_name = product.product_name
+        entry.image_url = product.image_url
+        entry.price_krw = product.price_krw
+        entry.status = product.status
+        entry.ends_at = product.ends_at
+        entries.append(entry)
+    return entries
