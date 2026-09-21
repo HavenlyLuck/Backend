@@ -133,6 +133,61 @@ def get_user_raffle_entries(db: Session, raffle_product_id: int, user_id: int) -
     )
 
 
+# 추첨 가능한 상품 목록 (관리자 추첨 화면용) — 응모 종료 시각이 지났거나, 시간이 남았어도 응모권이 매진되면 대상이 된다
+def get_closed_undrawn_products(db: Session) -> list[RaffleProduct]:
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    products = db.query(RaffleProduct).filter(RaffleProduct.status == "open").all()
+    if not products:
+        return []
+
+    sold_map = get_sold_ticket_counts(db, [p.raffle_product_id for p in products])
+    eligible = [
+        p for p in products
+        if p.ends_at <= now or sold_map.get(p.raffle_product_id, 0) >= p.total_slots
+    ]
+    eligible.sort(key=lambda p: p.ends_at)
+    return eligible
+
+
+# 추첨 룰렛 구슬 배치용 — 응모 번호별 총 응모권 수
+def get_entrants(db: Session, raffle_product_id: int) -> list[tuple[int, int]]:
+    rows = (
+        db.query(RaffleEntry.entry_number, func.sum(RaffleEntry.ticket_count))
+        .filter(RaffleEntry.raffle_product_id == raffle_product_id)
+        .group_by(RaffleEntry.entry_number)
+        .order_by(RaffleEntry.entry_number.asc())
+        .all()
+    )
+    return [(entry_number, int(total)) for entry_number, total in rows]
+
+
+# 당첨 응모 번호를 가진 유저의 user_id 조회
+def get_user_id_by_entry_number(db: Session, raffle_product_id: int, entry_number: int) -> Optional[int]:
+    entry = (
+        db.query(RaffleEntry)
+        .filter(RaffleEntry.raffle_product_id == raffle_product_id, RaffleEntry.entry_number == entry_number)
+        .first()
+    )
+    return entry.user_id if entry else None
+
+
+def save_draw_result(
+    db: Session,
+    product: RaffleProduct,
+    winner_entry_number: int,
+    winner_user_id: int,
+    draw_video_url: str,
+) -> RaffleProduct:
+    product.winner_entry_number = winner_entry_number
+    product.winner_user_id = winner_user_id
+    product.draw_video_url = draw_video_url
+    product.drawn_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    product.status = "completed"
+    db.commit()
+    db.refresh(product)
+    return product
+
+
 # 마이페이지 응모 내역 — 전체 상품에 걸친 내 응모를 상품 정보와 함께 조회
 def get_user_raffle_entries_all(db: Session, user_id: int) -> list[RaffleEntry]:
     rows = (
@@ -149,5 +204,7 @@ def get_user_raffle_entries_all(db: Session, user_id: int) -> list[RaffleEntry]:
         entry.price_krw = product.price_krw
         entry.status = product.status
         entry.ends_at = product.ends_at
+        entry.winner_entry_number = product.winner_entry_number
+        entry.draw_video_url = product.draw_video_url
         entries.append(entry)
     return entries

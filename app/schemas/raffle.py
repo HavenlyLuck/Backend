@@ -15,6 +15,9 @@ class RaffleProductResponse(BaseModel):
     starts_at: datetime
     ends_at: datetime
     drawn_at: Optional[datetime] = None
+    winner_entry_number: Optional[int] = None
+    winner_user_id: Optional[int] = None
+    draw_video_url: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -62,17 +65,26 @@ class RaffleEntryCreateResponse(RaffleEntryResponse):
         from_attributes = True
 
 
+# 추첨 룰렛을 그리기 위한 참가자별 응모권 집계 (응모 번호 하나 = 구슬 개수 = ticket_count 합)
+class RaffleEntrantResponse(BaseModel):
+    entry_number: int
+    ticket_count: int
+
+
 class MyRaffleEntryResponse(BaseModel):
     entry_id: int
     raffle_product_id: int
     ticket_count: int
     points_spent: int
+    entry_number: int
     created_at: datetime
     product_name: str
     image_url: Optional[str] = None
     price_krw: int
     status: Literal["open", "completed", "cancelled"]
     ends_at: datetime
+    winner_entry_number: Optional[int] = None
+    draw_video_url: Optional[str] = None
 
     class Config:
         from_attributes = True

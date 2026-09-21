@@ -13,3 +13,7 @@ cloudinary.config(
 def upload_image(file: UploadFile, folder: str = "raffle_products") -> str:
     result = cloudinary.uploader.upload(file.file, folder=folder)
     return result["secure_url"]
+
+def upload_video(file: UploadFile, folder: str = "raffle_draws") -> str:
+    result = cloudinary.uploader.upload(file.file, folder=folder, resource_type="video")
+    return result["secure_url"]
