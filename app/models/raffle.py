@@ -16,6 +16,9 @@ class RaffleProduct(Base):
     starts_at            = Column(DateTime, nullable=False)
     ends_at              = Column(DateTime, nullable=False)   # starts_at + 24시간
     drawn_at             = Column(DateTime, nullable=True)
+    winner_entry_number  = Column(Integer, nullable=True)     # 추첨으로 뽑힌 응모 번호
+    winner_user_id       = Column(Integer, ForeignKey("users.user_id"), nullable=True)
+    draw_video_url       = Column(String(500), nullable=True)  # 추첨 룰렛 녹화 영상 (Cloudinary)
     created_at           = Column(DateTime, server_default=func.now())
     updated_at           = Column(DateTime, server_default=func.now(), onupdate=func.now())
 

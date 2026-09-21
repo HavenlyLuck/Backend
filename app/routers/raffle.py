@@ -10,9 +10,10 @@ from app.core.config import RAFFLE_TICKET_PRICE
 from app.models.user import User
 from app.schemas.raffle import (
     RaffleProductResponse, RaffleEntryCreate, RaffleEntryResponse,
-    RaffleEntryCreateResponse, MyRaffleEntryResponse,
+    RaffleEntryCreateResponse, MyRaffleEntryResponse, RaffleEntrantResponse,
 )
-from app.services.cloudinary import upload_image
+from cloudinary.exceptions import Error as CloudinaryError
+from app.services.cloudinary import upload_image, upload_video
 from app.crud import raffle as raffle_crud
 from app.crud import point as point_crud
 
@@ -49,6 +50,16 @@ def list_raffle_products(
     db: Session = Depends(get_db),
 ):
     products = raffle_crud.get_raffle_products(db, status=status)
+    sold_map = raffle_crud.get_sold_ticket_counts(db, [p.raffle_product_id for p in products])
+    for p in products:
+        p.sold_slots = sold_map.get(p.raffle_product_id, 0)
+    return products
+
+
+# 마감됐지만 아직 추첨하지 않은 상품 목록 (관리자 추첨 화면용) — {raffle_product_id}보다 먼저 등록해야 경로가 겹치지 않는다
+@router.get("/pending-draw", response_model=list[RaffleProductResponse])
+def list_pending_draw_products(db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
+    products = raffle_crud.get_closed_undrawn_products(db)
     sold_map = raffle_crud.get_sold_ticket_counts(db, [p.raffle_product_id for p in products])
     for p in products:
         p.sold_slots = sold_map.get(p.raffle_product_id, 0)
@@ -140,3 +151,53 @@ def get_my_raffle_entries_all(
     user: User = Depends(get_current_user),
 ):
     return raffle_crud.get_user_raffle_entries_all(db, user.user_id)
+
+
+# 추첨 룰렛 구슬 배치용 — 응모 번호별 총 응모권 수 (관리자 전용)
+@router.get("/{raffle_product_id}/entrants", response_model=list[RaffleEntrantResponse])
+def get_raffle_entrants(
+    raffle_product_id: int,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    entrants = raffle_crud.get_entrants(db, raffle_product_id)
+    return [{"entry_number": n, "ticket_count": c} for n, c in entrants]
+
+
+# 추첨 결과 저장 (관리자 전용) — 마감된 상품에 대해 한 번만 가능하며, 당첨 응모 번호가
+# 실제 이 상품에 응모한 번호인지 검증한 뒤 영상을 업로드하고 결과를 확정한다
+@router.post("/{raffle_product_id}/draw", response_model=RaffleProductResponse)
+def draw_raffle_winner(
+    raffle_product_id: int,
+    winner_entry_number: int = Form(...),
+    video: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    product = raffle_crud.get_raffle_product_for_update(db, raffle_product_id)
+    if not product:
+        raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다")
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    sold = raffle_crud.get_sold_ticket_count(db, raffle_product_id)
+    is_sold_out = sold >= product.total_slots
+    if product.ends_at > now and not is_sold_out:
+        raise HTTPException(status_code=400, detail="아직 마감되지 않은 응모입니다")
+    if product.winner_entry_number is not None:
+        raise HTTPException(status_code=400, detail="이미 추첨이 완료된 상품입니다")
+
+    winner_user_id = raffle_crud.get_user_id_by_entry_number(db, raffle_product_id, winner_entry_number)
+    if winner_user_id is None:
+        raise HTTPException(status_code=400, detail="이 상품에 존재하지 않는 응모 번호입니다")
+
+    try:
+        video_url = upload_video(video)
+    except CloudinaryError as e:
+        raise HTTPException(status_code=400, detail=f"영상 업로드에 실패했습니다: {e}")
+
+    return raffle_crud.save_draw_result(
+        db, product,
+        winner_entry_number=winner_entry_number,
+        winner_user_id=winner_user_id,
+        draw_video_url=video_url,
+    )
