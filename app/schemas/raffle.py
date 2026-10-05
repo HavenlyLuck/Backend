@@ -14,6 +14,7 @@ class RaffleProductResponse(BaseModel):
     status: Literal["open", "completed", "cancelled"]
     starts_at: datetime
     ends_at: datetime
+    sold_out_at: Optional[datetime] = None
     drawn_at: Optional[datetime] = None
     winner_entry_number: Optional[int] = None
     winner_user_id: Optional[int] = None
@@ -83,8 +84,24 @@ class MyRaffleEntryResponse(BaseModel):
     price_krw: int
     status: Literal["open", "completed", "cancelled"]
     ends_at: datetime
+    sold_out_at: Optional[datetime] = None
     winner_entry_number: Optional[int] = None
     draw_video_url: Optional[str] = None
 
     class Config:
         from_attributes = True
+
+
+# 번개 추첨 화면에 세울 응모자 한 명 — 응모 번호와 캐릭터 착장만 내려준다(닉네임 등 개인정보는 제외)
+class RaffleCastMember(BaseModel):
+    entry_number: int
+    ticket_count: int
+    avatar_config: Optional[dict] = None
+
+
+class RaffleDrawCastResponse(BaseModel):
+    raffle_product_id: int
+    sold_out_at: Optional[datetime] = None
+    draw_at: Optional[datetime] = None            # 자동 추첨 예정 시각
+    winner_entry_number: Optional[int] = None     # 추첨 전에는 None
+    cast: list[RaffleCastMember]

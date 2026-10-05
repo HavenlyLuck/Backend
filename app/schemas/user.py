@@ -35,6 +35,7 @@ class UserResponse(BaseModel):
     nickname: str
     email: str
     avatar_url: Optional[str] = None
+    avatar_config: Optional[dict] = None
     trade_count: int
 
     class Config:

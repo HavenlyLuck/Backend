@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Boolean
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, JSON
 from sqlalchemy.sql import func
 from app.database import Base
 
@@ -12,6 +12,7 @@ class User(Base):
     phone             = Column(String(20), unique=True, nullable=False)
     phone_verified_at = Column(DateTime, nullable=False)
     avatar_url        = Column(String(500), nullable=True)
+    avatar_config     = Column(JSON, nullable=True)   # 픽셀 캐릭터 커스터마이징 (app/schemas/avatar.py)
     trade_count       = Column(Integer, default=0)
     is_admin          = Column(Boolean, default=False, nullable=False, server_default="0")
     created_at        = Column(DateTime, server_default=func.now())
