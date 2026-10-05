@@ -15,10 +15,11 @@ class RaffleProduct(Base):
     status               = Column(Enum("open", "completed", "cancelled", name="raffle_status"), nullable=False, default="open", server_default="open")
     starts_at            = Column(DateTime, nullable=False)
     ends_at              = Column(DateTime, nullable=False)   # starts_at + 24시간
+    sold_out_at          = Column(DateTime, nullable=True)     # 응모권이 매진된 시각 — 이 시각 + RAFFLE_DRAW_DELAY에 자동 추첨
     drawn_at             = Column(DateTime, nullable=True)
     winner_entry_number  = Column(Integer, nullable=True)     # 추첨으로 뽑힌 응모 번호
     winner_user_id       = Column(Integer, ForeignKey("users.user_id"), nullable=True)
-    draw_video_url       = Column(String(500), nullable=True)  # 추첨 룰렛 녹화 영상 (Cloudinary)
+    draw_video_url       = Column(String(500), nullable=True)  # (예전 수동 추첨의 룰렛 녹화 영상 — 자동 추첨부터는 비어 있음)
     created_at           = Column(DateTime, server_default=func.now())
     updated_at           = Column(DateTime, server_default=func.now(), onupdate=func.now())
 

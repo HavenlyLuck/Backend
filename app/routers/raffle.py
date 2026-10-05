@@ -6,14 +6,14 @@ from typing import Optional, Literal
 
 from app.database import get_db
 from app.core.dependencies import get_current_admin, get_current_user
-from app.core.config import RAFFLE_TICKET_PRICE
+from app.core.config import RAFFLE_TICKET_PRICE, RAFFLE_DURATION_DAYS_OPTIONS
 from app.models.user import User
 from app.schemas.raffle import (
     RaffleProductResponse, RaffleEntryCreate, RaffleEntryResponse,
     RaffleEntryCreateResponse, MyRaffleEntryResponse, RaffleEntrantResponse,
+    RaffleDrawCastResponse,
 )
-from cloudinary.exceptions import Error as CloudinaryError
-from app.services.cloudinary import upload_image, upload_video
+from app.services.cloudinary import upload_image
 from app.crud import raffle as raffle_crud
 from app.crud import point as point_crud
 
@@ -26,11 +26,14 @@ def create_raffle_product(
     description: Optional[str] = Form(None),
     price_krw: int = Form(...),
     image: UploadFile = File(...),
+    duration_days: int = Form(1),
     db: Session = Depends(get_db),
     admin: User = Depends(get_current_admin),
 ):
     if price_krw < RAFFLE_TICKET_PRICE:
         raise HTTPException(status_code=400, detail=f"가격은 응모권 가격({RAFFLE_TICKET_PRICE}원) 이상이어야 합니다")
+    if duration_days not in RAFFLE_DURATION_DAYS_OPTIONS:
+        raise HTTPException(status_code=400, detail=f"응모 기간은 {', '.join(map(str, RAFFLE_DURATION_DAYS_OPTIONS))}일 중에서 선택해야 합니다")
 
     image_url = upload_image(image)
     return raffle_crud.create_raffle_product(
@@ -40,6 +43,7 @@ def create_raffle_product(
         description=description,
         price_krw=price_krw,
         image_url=image_url,
+        duration_days=duration_days,
     )
 
 
@@ -114,6 +118,10 @@ def create_raffle_entry(
         entry_number=entry_number,
     )
 
+    # 이번 구매로 매진됐으면 매진 시각을 남긴다 — 이 시각부터 RAFFLE_DRAW_DELAY_SECONDS 뒤에 자동 추첨
+    if sold + payload.ticket_count >= product.total_slots:
+        product.sold_out_at = now
+
     try:
         point_crud.apply_point_change(
             db,
@@ -164,40 +172,26 @@ def get_raffle_entrants(
     return [{"entry_number": n, "ticket_count": c} for n, c in entrants]
 
 
-# 추첨 결과 저장 (관리자 전용) — 마감된 상품에 대해 한 번만 가능하며, 당첨 응모 번호가
-# 실제 이 상품에 응모한 번호인지 검증한 뒤 영상을 업로드하고 결과를 확정한다
-@router.post("/{raffle_product_id}/draw", response_model=RaffleProductResponse)
-def draw_raffle_winner(
+# 번개 추첨 화면용 응모자 목록 — 매진 후(추첨 대기 5분 동안 미리 받아두거나 추첨 후 결과를 볼 때)
+# 이 상품에 응모한 사람(또는 관리자)만 볼 수 있고, 당첨 번호는 추첨이 끝난 뒤에만 내려간다
+@router.get("/{raffle_product_id}/draw-cast", response_model=RaffleDrawCastResponse)
+def get_raffle_draw_cast(
     raffle_product_id: int,
-    winner_entry_number: int = Form(...),
-    video: UploadFile = File(...),
     db: Session = Depends(get_db),
-    admin: User = Depends(get_current_admin),
+    user: User = Depends(get_current_user),
 ):
-    product = raffle_crud.get_raffle_product_for_update(db, raffle_product_id)
+    product = raffle_crud.get_raffle_product(db, raffle_product_id)
     if not product:
         raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다")
+    if not user.is_admin and not raffle_crud.has_entered(db, raffle_product_id, user.user_id):
+        raise HTTPException(status_code=403, detail="이 응모에 참여한 사람만 볼 수 있습니다")
+    if product.sold_out_at is None and product.status != "completed":
+        raise HTTPException(status_code=400, detail="아직 응모권이 매진되지 않았습니다")
 
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
-    sold = raffle_crud.get_sold_ticket_count(db, raffle_product_id)
-    is_sold_out = sold >= product.total_slots
-    if product.ends_at > now and not is_sold_out:
-        raise HTTPException(status_code=400, detail="아직 마감되지 않은 응모입니다")
-    if product.winner_entry_number is not None:
-        raise HTTPException(status_code=400, detail="이미 추첨이 완료된 상품입니다")
-
-    winner_user_id = raffle_crud.get_user_id_by_entry_number(db, raffle_product_id, winner_entry_number)
-    if winner_user_id is None:
-        raise HTTPException(status_code=400, detail="이 상품에 존재하지 않는 응모 번호입니다")
-
-    try:
-        video_url = upload_video(video)
-    except CloudinaryError as e:
-        raise HTTPException(status_code=400, detail=f"영상 업로드에 실패했습니다: {e}")
-
-    return raffle_crud.save_draw_result(
-        db, product,
-        winner_entry_number=winner_entry_number,
-        winner_user_id=winner_user_id,
-        draw_video_url=video_url,
-    )
+    return {
+        "raffle_product_id": product.raffle_product_id,
+        "sold_out_at": product.sold_out_at,
+        "draw_at": raffle_crud.get_draw_at(product),
+        "winner_entry_number": product.winner_entry_number,
+        "cast": raffle_crud.get_draw_cast(db, raffle_product_id),
+    }

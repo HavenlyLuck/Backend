@@ -11,12 +11,21 @@ from app.schemas.user import (
 )
 from app.core.security import hash_password, verify_password, create_token, decode_token
 from app.core.dependencies import get_current_user
+from app.schemas.avatar import AvatarConfig
 
 router = APIRouter()
 
 # 내 프로필 조회
 @router.get("/me", response_model=UserResponse)
 def get_me(user: User = Depends(get_current_user)):
+    return user
+
+# 내 캐릭터 저장 (설정 JSON만 저장하고, 이미지는 프론트에서 합성한다)
+@router.put("/me/avatar", response_model=UserResponse)
+def update_my_avatar(body: AvatarConfig, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    user.avatar_config = body.model_dump()
+    db.commit()
+    db.refresh(user)
     return user
 
 # 회원가입

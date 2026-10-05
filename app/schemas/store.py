@@ -14,3 +14,16 @@ class StoreProductResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class StorePurchaseRequest(BaseModel):
+    quantity: int
+
+
+class StorePurchaseResponse(BaseModel):
+    storage_item_id: int
+    store_product_id: int
+    quantity: int
+    points_spent: int
+    point_type: Literal["woon", "ssal"]
+    remaining_stock: int
