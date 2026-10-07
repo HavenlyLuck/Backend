@@ -6,3 +6,4 @@ from app.models.review import Review
 from app.models.inquiry import Inquiry
 from app.models.address import ShippingAddress
 from app.models.storage import StorageItem
+from app.models.avatar_item import UserAvatarItem

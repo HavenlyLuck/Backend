@@ -6,7 +6,7 @@ from typing import Optional, Literal
 from app.database import get_db
 from app.core.dependencies import get_current_admin, get_current_user
 from app.models.user import User
-from app.schemas.store import StoreProductResponse, StorePurchaseRequest, StorePurchaseResponse
+from app.schemas.store import STORE_CATEGORIES, StoreCategory, StoreProductResponse, StorePurchaseRequest, StorePurchaseResponse
 from app.services.cloudinary import upload_image
 from app.crud import store as store_crud
 from app.crud import storage as storage_crud
@@ -20,6 +20,7 @@ def create_store_product(
     product_name: str = Form(...),
     description: Optional[str] = Form(None),
     point_type: Literal["woon", "ssal"] = Form(...),
+    category: StoreCategory = Form(...),
     price: int = Form(...),
     stock: int = Form(...),
     image: Optional[UploadFile] = File(None),
@@ -30,6 +31,8 @@ def create_store_product(
         raise HTTPException(status_code=400, detail="가격은 0보다 커야 합니다")
     if stock < 0:
         raise HTTPException(status_code=400, detail="재고는 0 이상이어야 합니다")
+    if category not in STORE_CATEGORIES[point_type]:
+        raise HTTPException(status_code=400, detail="해당 상점에서 사용할 수 없는 분류입니다")
 
     image_url = upload_image(image, folder="store_products") if image else None
     return store_crud.create_store_product(
@@ -38,6 +41,7 @@ def create_store_product(
         product_name=product_name,
         description=description,
         point_type=point_type,
+        category=category,
         price=price,
         stock=stock,
         image_url=image_url,

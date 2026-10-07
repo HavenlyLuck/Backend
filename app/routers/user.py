@@ -12,6 +12,8 @@ from app.schemas.user import (
 from app.core.security import hash_password, verify_password, create_token, decode_token
 from app.core.dependencies import get_current_user
 from app.schemas.avatar import AvatarConfig
+from app.core.avatar_items import AVATAR_ITEM_SLOTS, OVERLAY_SLOTS, find_item_id
+from app.crud import avatar_item as avatar_item_crud
 
 router = APIRouter()
 
@@ -23,7 +25,19 @@ def get_me(user: User = Depends(get_current_user)):
 # 내 캐릭터 저장 (설정 JSON만 저장하고, 이미지는 프론트에서 합성한다)
 @router.put("/me/avatar", response_model=UserResponse)
 def update_my_avatar(body: AvatarConfig, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    user.avatar_config = body.model_dump()
+    if body.costume is not None and any(getattr(body, slot) is not None for slot in OVERLAY_SLOTS):
+        raise HTTPException(status_code=400, detail="전체 스킨은 무기·모자·망토와 같이 착용할 수 없습니다")
+    owned = avatar_item_crud.get_owned_item_ids(db, user.user_id)
+    for slot in AVATAR_ITEM_SLOTS:
+        index = getattr(body, slot)
+        if index is None:
+            continue
+        item_id = find_item_id(slot, index)
+        if item_id is None:
+            raise HTTPException(status_code=400, detail="존재하지 않는 아이템입니다")
+        if item_id not in owned:
+            raise HTTPException(status_code=400, detail="보유하지 않은 아이템은 착용할 수 없습니다")
+    user.avatar_config = body.model_dump(exclude_none=True)
     db.commit()
     db.refresh(user)
     return user

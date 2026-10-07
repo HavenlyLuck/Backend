@@ -19,7 +19,7 @@ class PointTransaction(Base):
     point_type     = Column(Enum("woon", "ssal", name="point_transaction_type"), nullable=False)
     amount         = Column(Integer, nullable=False)   # 지급 +, 차감 -
     balance_after  = Column(Integer, nullable=False)   # 거래 직후 잔액 스냅샷
-    reason         = Column(Enum("raffle_entry", "store_purchase", "admin_grant", "refund", "raffle_consolation", name="point_transaction_reason"), nullable=False)   # raffle_consolation: 낙첨 보상 쌀포인트
+    reason         = Column(Enum("raffle_entry", "store_purchase", "admin_grant", "refund", "raffle_consolation", "avatar_purchase", name="point_transaction_reason"), nullable=False)   # raffle_consolation: 낙첨 보상 쌀포인트, avatar_purchase: 아바타 아이템 구매
     reference_id   = Column(Integer, nullable=True)   # 연관 엔티티 id (예: raffle_entries.entry_id)
     description    = Column(String(255), nullable=True)
     created_at     = Column(DateTime, server_default=func.now())

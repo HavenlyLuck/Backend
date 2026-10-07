@@ -9,6 +9,8 @@ class StoreProduct(Base):
     product_name      = Column(String(200), nullable=False)
     description       = Column(Text, nullable=True)
     point_type        = Column(Enum("woon", "ssal", name="store_point_type"), nullable=False)
+    # 상점 세부 탭 분류 — 운포인트: figure/goods/card, 쌀포인트: coupon/goods/avatar
+    category          = Column(Enum("figure", "goods", "card", "coupon", "avatar", name="store_category"), nullable=True)
     price             = Column(Integer, nullable=False)
     stock             = Column(Integer, nullable=False)
     image_url         = Column(String(500), nullable=True)
