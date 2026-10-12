@@ -7,3 +7,4 @@ from app.models.inquiry import Inquiry
 from app.models.address import ShippingAddress
 from app.models.storage import StorageItem
 from app.models.avatar_item import UserAvatarItem
+from app.models.notice import Notice

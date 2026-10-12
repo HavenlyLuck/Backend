@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from app.core.config import RAFFLE_TICKET_PRICE, RAFFLE_DRAW_DELAY_SECONDS
+from app.core.config import RAFFLE_TICKET_PRICE, RAFFLE_DRAW_DELAY_SECONDS, RAFFLE_DURATION_OVERRIDE_MINUTES
 from app.models.raffle import RaffleProduct, RaffleEntry
 from app.models.user import User
 from app.crud import storage as storage_crud
@@ -21,6 +21,11 @@ def create_raffle_product(
     duration_days: int,
 ) -> RaffleProduct:
     starts_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    duration = (
+        timedelta(minutes=RAFFLE_DURATION_OVERRIDE_MINUTES)
+        if RAFFLE_DURATION_OVERRIDE_MINUTES is not None
+        else timedelta(days=duration_days)
+    )
     product = RaffleProduct(
         admin_id=admin_id,
         product_name=product_name,
@@ -30,7 +35,7 @@ def create_raffle_product(
         total_slots=price_krw // RAFFLE_TICKET_PRICE,
         image_url=image_url,
         starts_at=starts_at,
-        ends_at=starts_at + timedelta(days=duration_days),
+        ends_at=starts_at + duration,
     )
     db.add(product)
     db.commit()
