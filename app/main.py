@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import SessionLocal
 from app.crud import raffle as raffle_crud
-from app.routers import user, admin, raffle, point, store, storage, address, avatar_item
+from app.routers import user, admin, raffle, point, store, storage, address, avatar_item, notice
 
 SETTLE_INTERVAL_SECONDS = 5
 
@@ -44,6 +44,8 @@ app = FastAPI(title="HavenlyLuck API", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "https://havenlyluck-frontend.vercel.app"],
+    # 로컬 개발 — 같은 와이파이의 다른 기기에서 http://<사설 IP>:3000 으로 접속하는 경우
+    allow_origin_regex=r"http://(192\.168|10|172\.(1[6-9]|2\d|3[01]))(\.\d{1,3}){2,3}:3000",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -58,6 +60,7 @@ app.include_router(store.router, prefix="/store-products", tags=["store"])
 app.include_router(storage.router, prefix="/storage", tags=["storage"])
 app.include_router(address.router, prefix="/addresses", tags=["addresses"])
 app.include_router(avatar_item.router, prefix="/avatar-items", tags=["avatar-items"])
+app.include_router(notice.router, prefix="/notices", tags=["notices"])
 
 @app.get("/server_ok")
 def health_check():
