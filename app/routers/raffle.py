@@ -172,7 +172,7 @@ def get_raffle_entrants(
     return [{"entry_number": n, "ticket_count": c} for n, c in entrants]
 
 
-# 번개 추첨 화면용 응모자 목록 — 매진 후(추첨 대기 5분 동안 미리 받아두거나 추첨 후 결과를 볼 때)
+# 번개 추첨 화면용 응모자 목록 — 매진 후(추첨 대기 1분 동안 미리 받아두거나 추첨 후 결과를 볼 때)
 # 이 상품에 응모한 사람(또는 관리자)만 볼 수 있고, 당첨 번호는 추첨이 끝난 뒤에만 내려간다
 @router.get("/{raffle_product_id}/draw-cast", response_model=RaffleDrawCastResponse)
 def get_raffle_draw_cast(
