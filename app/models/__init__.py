@@ -8,3 +8,4 @@ from app.models.address import ShippingAddress
 from app.models.storage import StorageItem
 from app.models.avatar_item import UserAvatarItem
 from app.models.notice import Notice
+from app.models.kuji import KujiSet, KujiPrize, KujiTicket

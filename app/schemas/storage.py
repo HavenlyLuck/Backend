@@ -4,9 +4,11 @@ from typing import Optional, Literal
 
 class StorageItemResponse(BaseModel):
     storage_item_id: int
-    source: Literal["raffle", "store"]
+    source: Literal["raffle", "store", "kuji"]
     raffle_product_id: Optional[int] = None
     store_product_id: Optional[int] = None
+    kuji_set_id: Optional[int] = None
+    kuji_prize_id: Optional[int] = None
     product_name: str
     image_url: Optional[str] = None
     quantity: int

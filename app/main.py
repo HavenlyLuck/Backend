@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from app.database import SessionLocal
 from app.crud import raffle as raffle_crud
-from app.routers import user, admin, raffle, point, store, storage, address, avatar_item, notice
+from app.routers import user, admin, raffle, point, store, storage, address, avatar_item, notice, kuji
 
 SETTLE_INTERVAL_SECONDS = 5
 
@@ -61,6 +61,7 @@ app.include_router(storage.router, prefix="/storage", tags=["storage"])
 app.include_router(address.router, prefix="/addresses", tags=["addresses"])
 app.include_router(avatar_item.router, prefix="/avatar-items", tags=["avatar-items"])
 app.include_router(notice.router, prefix="/notices", tags=["notices"])
+app.include_router(kuji.router, prefix="/kuji", tags=["kuji"])
 
 @app.get("/server_ok")
 def health_check():

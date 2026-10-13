@@ -5,6 +5,7 @@ from typing import Optional
 from app.models.storage import StorageItem
 from app.models.raffle import RaffleProduct
 from app.models.store import StoreProduct
+from app.models.kuji import KujiSet, KujiPrize
 
 
 # 추첨 결과 저장과 같은 트랜잭션에서 호출한다 (commit은 호출한 쪽에서)
@@ -36,29 +37,64 @@ def add_store_purchase(
     return item
 
 
+# 쿠지 뽑기와 같은 트랜잭션에서 호출한다 (commit은 호출한 쪽에서)
+# 라스트원상은 kuji_prize_id 없이 kuji_set_id만 남긴다
+def add_kuji_win(
+    db: Session, user_id: int, kuji_set_id: int, kuji_prize_id: Optional[int], quantity: int, points_spent: Optional[int]
+) -> StorageItem:
+    item = StorageItem(
+        user_id=user_id,
+        source="kuji",
+        kuji_set_id=kuji_set_id,
+        kuji_prize_id=kuji_prize_id,
+        quantity=quantity,
+        points_spent=points_spent,
+    )
+    db.add(item)
+    db.flush()
+    return item
+
+
+def _kuji_item_name(kuji: Optional[KujiSet], prize: Optional[KujiPrize]) -> tuple[str, Optional[str]]:
+    if not kuji:
+        return "(삭제된 상품)", None
+    if prize:
+        return f"{kuji.title} {prize.grade}상 - {prize.name}", prize.image_url or kuji.image_url
+    return f"{kuji.title} 라스트원상 - {kuji.last_one_name}", kuji.last_one_image_url or kuji.image_url
+
+
 # 내 보관함 — 당첨/구매 상품 정보를 붙여서 최신순으로
 def get_user_storage_items(db: Session, user_id: int) -> list[dict]:
     rows = (
-        db.query(StorageItem, RaffleProduct, StoreProduct)
+        db.query(StorageItem, RaffleProduct, StoreProduct, KujiSet, KujiPrize)
         .outerjoin(RaffleProduct, StorageItem.raffle_product_id == RaffleProduct.raffle_product_id)
         .outerjoin(StoreProduct, StorageItem.store_product_id == StoreProduct.store_product_id)
+        .outerjoin(KujiSet, StorageItem.kuji_set_id == KujiSet.kuji_set_id)
+        .outerjoin(KujiPrize, StorageItem.kuji_prize_id == KujiPrize.kuji_prize_id)
         .filter(StorageItem.user_id == user_id)
         .order_by(StorageItem.created_at.desc(), StorageItem.storage_item_id.desc())
         .all()
     )
     result = []
-    for item, raffle, store in rows:
+    for item, raffle, store, kuji, prize in rows:
         product = raffle or store
+        if item.source == "kuji":
+            name, image_url = _kuji_item_name(kuji, prize)
+        else:
+            name = product.product_name if product else "(삭제된 상품)"
+            image_url = product.image_url if product else None
         result.append({
             "storage_item_id": item.storage_item_id,
             "source": item.source,
             "raffle_product_id": item.raffle_product_id,
             "store_product_id": item.store_product_id,
-            "product_name": product.product_name if product else "(삭제된 상품)",
-            "image_url": product.image_url if product else None,
+            "kuji_set_id": item.kuji_set_id,
+            "kuji_prize_id": item.kuji_prize_id,
+            "product_name": name,
+            "image_url": image_url,
             "quantity": item.quantity,
             "price_krw": raffle.price_krw if raffle else None,
-            "point_type": store.point_type if store else None,
+            "point_type": store.point_type if store else ("woon" if item.source == "kuji" and item.points_spent else None),
             "points_spent": item.points_spent,
             "status": item.status,
             "address_id": item.address_id,
