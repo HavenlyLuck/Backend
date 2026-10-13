@@ -365,10 +365,17 @@ def get_draw_cast(db: Session, raffle_product_id: int) -> list[dict]:
         .all()
     )
     user_ids = {user_id for _, user_id, _ in rows}
-    avatars = dict(
-        db.query(User.user_id, User.avatar_config).filter(User.user_id.in_(user_ids)).all()
-    ) if user_ids else {}
+    users = {
+        user_id: (avatar_config, nickname)
+        for user_id, avatar_config, nickname in db.query(User.user_id, User.avatar_config, User.nickname)
+        .filter(User.user_id.in_(user_ids)).all()
+    } if user_ids else {}
     return [
-        {"entry_number": n, "ticket_count": int(tickets), "avatar_config": avatars.get(user_id)}
+        {
+            "entry_number": n,
+            "ticket_count": int(tickets),
+            "avatar_config": users.get(user_id, (None, None))[0],
+            "nickname": users.get(user_id, (None, None))[1],
+        }
         for n, user_id, tickets in rows
     ]

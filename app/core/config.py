@@ -32,4 +32,4 @@ KUJI_MAX_TICKETS = 1000
 # 한 번에 뽑을 수 있는 최대 제비 수
 KUJI_MAX_DRAW = 10
 # 응모권이 매진된 뒤 자동 추첨까지 기다리는 시간 (이 동안 응모자들이 추첨 화면을 준비한다)
-RAFFLE_DRAW_DELAY_SECONDS = 5 * 60
+RAFFLE_DRAW_DELAY_SECONDS = 1 * 60

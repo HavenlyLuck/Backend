@@ -97,6 +97,7 @@ class RaffleCastMember(BaseModel):
     entry_number: int
     ticket_count: int
     avatar_config: Optional[dict] = None
+    nickname: Optional[str] = None                # 추첨 연출 마지막에 당첨자 이름표로 띄운다
 
 
 class RaffleDrawCastResponse(BaseModel):
