@@ -28,7 +28,7 @@ RAFFLE_TICKET_PRICE = 1000
 # 응모 상품 진행 기간 (등록 시점 기준, 관리자가 등록할 때 이 중에서 선택)
 RAFFLE_DURATION_DAYS_OPTIONS = (1, 2, 3)
 # 테스트용 — 값이 있으면 관리자가 고른 기간 대신 등록 시점부터 이 분(minute) 뒤에 마감한다. 운영에서는 None
-RAFFLE_DURATION_OVERRIDE_MINUTES = 10
+RAFFLE_DURATION_OVERRIDE_MINUTES = None
 # 쿠지 제비 1장 기본 가격(운포인트)과 한 판에 만들 수 있는 최대 제비 수
 KUJI_TICKET_PRICE = 10000
 KUJI_MAX_TICKETS = 1000
