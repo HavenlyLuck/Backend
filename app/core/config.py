@@ -1,3 +1,4 @@
+from typing import Optional
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
@@ -13,6 +14,8 @@ class Settings(BaseSettings):
     CLOUDINARY_CLOUD_NAME: str
     CLOUDINARY_API_KEY: str
     CLOUDINARY_API_SECRET: str
+    # 도로명주소 검색 API 승인키 (business.juso.go.kr 에서 발급). 없으면 주소 검색이 비활성화된다
+    JUSO_API_KEY: Optional[str] = None
 
 
     class Config:

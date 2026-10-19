@@ -25,3 +25,16 @@ class AddressResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class AddressSearchItem(BaseModel):
+    zip_code: str
+    road_address: str
+    jibun_address: str
+    building_name: str
+
+
+class AddressSearchResponse(BaseModel):
+    total: int
+    page: int
+    items: list[AddressSearchItem]

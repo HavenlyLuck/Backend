@@ -1,12 +1,13 @@
 # app/routers/address.py
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.core.dependencies import get_current_user
 from app.models.user import User
-from app.schemas.address import AddressCreate, AddressResponse
+from app.schemas.address import AddressCreate, AddressResponse, AddressSearchResponse
 from app.crud import address as address_crud
+from app.services import juso
 
 router = APIRouter()
 
@@ -17,6 +18,19 @@ def get_my_addresses(
     user: User = Depends(get_current_user),
 ):
     return address_crud.get_user_addresses(db, user.user_id)
+
+
+# 도로명주소 검색 (행정안전부 주소 API 프록시)
+@router.get("/search", response_model=AddressSearchResponse)
+def search_address(
+    keyword: str = Query(..., min_length=2, max_length=80),
+    page: int = Query(1, ge=1),
+    user: User = Depends(get_current_user),
+):
+    try:
+        return juso.search_address(keyword.strip(), page=page)
+    except juso.JusoError as e:
+        raise HTTPException(status_code=502, detail=str(e))
 
 
 # 배송지 등록

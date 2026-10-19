@@ -82,7 +82,8 @@ jobs:
               { "name": "ACCESS_TOKEN_EXPIRE_MINUTES", "value": "60" },
               { "name": "CLOUDINARY_CLOUD_NAME", "value": "${{ secrets.CLOUDINARY_CLOUD_NAME }}" },
               { "name": "CLOUDINARY_API_KEY", "value": "${{ secrets.CLOUDINARY_API_KEY }}" },
-              { "name": "CLOUDINARY_API_SECRET", "value": "${{ secrets.CLOUDINARY_API_SECRET }}" }
+              { "name": "CLOUDINARY_API_SECRET", "value": "${{ secrets.CLOUDINARY_API_SECRET }}" },
+              { "name": "JUSO_API_KEY", "value": "${{ secrets.JUSO_API_KEY }}" }
 
             ]
 
