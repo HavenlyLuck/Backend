@@ -9,7 +9,7 @@ class RaffleProduct(Base):
     product_name        = Column(String(200), nullable=False)
     description          = Column(Text, nullable=True)
     price_krw            = Column(Integer, nullable=False)
-    ticket_price         = Column(Integer, nullable=False)   # 응모권 1장당 운포인트
+    ticket_price         = Column(Integer, nullable=False)   # 응모권 1장당 가격(원)
     total_slots          = Column(Integer, nullable=False)
     image_url            = Column(String(500), nullable=True)
     status               = Column(Enum("open", "completed", "cancelled", name="raffle_status"), nullable=False, default="open", server_default="open")
@@ -30,6 +30,7 @@ class RaffleEntry(Base):
     raffle_product_id  = Column(Integer, ForeignKey("raffle_products.raffle_product_id"), nullable=False)
     user_id            = Column(Integer, ForeignKey("users.user_id"), nullable=False)
     ticket_count       = Column(Integer, nullable=False)     # 이번 응모에서 구매한 응모권 수
-    points_spent       = Column(Integer, nullable=False)     # ticket_count * ticket_price 스냅샷
+    amount_paid        = Column(Integer, nullable=False)     # 결제 금액(원) = ticket_count * ticket_price 스냅샷
+    payment_id         = Column(String(64), ForeignKey("payments.payment_id"), unique=True, nullable=True)   # 응모 1건 = 결제 1건 (운포인트 시절 응모는 비어 있음)
     entry_number       = Column(Integer, nullable=False)     # 이 상품에 유저가 처음 응모했을 때 부여받는 번호(1부터, 유저당 1회만). 추가 구매해도 같은 유저면 값이 그대로 이어짐
     created_at         = Column(DateTime, server_default=func.now())

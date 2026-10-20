@@ -13,8 +13,8 @@ class StorageItemResponse(BaseModel):
     image_url: Optional[str] = None
     quantity: int
     price_krw: Optional[int] = None                       # 당첨 상품 정가
-    point_type: Optional[Literal["woon", "ssal"]] = None  # 상점 구매 포인트 종류
-    points_spent: Optional[int] = None
+    pay_type: Optional[Literal["cash", "ssal"]] = None  # cash: 카드 결제(원), ssal: 쌀포인트
+    amount_spent: Optional[int] = None
     status: Literal["ready", "requested", "shipped"]
     address_id: Optional[int] = None
     requested_at: Optional[datetime] = None

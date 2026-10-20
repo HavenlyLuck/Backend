@@ -6,6 +6,7 @@ from typing import Optional
 
 from app.core.config import RAFFLE_TICKET_PRICE, RAFFLE_DRAW_DELAY_SECONDS, RAFFLE_DURATION_OVERRIDE_MINUTES
 from app.models.raffle import RaffleProduct, RaffleEntry
+from app.models.payment import Payment
 from app.models.user import User
 from app.crud import storage as storage_crud
 from app.crud import point as point_crud
@@ -90,18 +91,68 @@ def create_raffle_entry(
     raffle_product_id: int,
     user_id: int,
     ticket_count: int,
-    points_spent: int,
+    amount_paid: int,
     entry_number: int,
+    payment_id: Optional[str] = None,
 ) -> RaffleEntry:
     entry = RaffleEntry(
         raffle_product_id=raffle_product_id,
         user_id=user_id,
         ticket_count=ticket_count,
-        points_spent=points_spent,
+        amount_paid=amount_paid,
         entry_number=entry_number,
+        payment_id=payment_id,
     )
     db.add(entry)
     db.flush()
+    return entry
+
+
+class RaffleEntryError(Exception):
+    pass
+
+
+# 응모할 수 있는 상태인지 확인 (결제 전 주문 만들 때 · 결제 후 응모권 발급할 때 둘 다)
+def check_can_enter(db: Session, product: Optional[RaffleProduct], ticket_count: int) -> None:
+    if ticket_count <= 0:
+        raise RaffleEntryError("응모권 수는 1장 이상이어야 합니다")
+    if not product:
+        raise RaffleEntryError("상품을 찾을 수 없습니다")
+    if product.status != "open" or product.ends_at <= _utcnow():
+        raise RaffleEntryError("마감된 응모입니다")
+    sold = get_sold_ticket_count(db, product.raffle_product_id)
+    if sold + ticket_count > product.total_slots:
+        raise RaffleEntryError("남은 응모권이 부족합니다")
+
+
+# 결제가 확인된 뒤 응모권을 발급한다 (commit은 호출한 쪽에서). 발급할 수 없으면 RaffleEntryError
+def fulfill_raffle_entry(
+    db: Session, raffle_product_id: int, user_id: int, ticket_count: int, amount_paid: int, payment_id: str,
+) -> RaffleEntry:
+    # 행 잠금으로 조회 → 동시 응모 시에도 total_slots를 넘겨 팔지 않도록 보장
+    product = get_raffle_product_for_update(db, raffle_product_id)
+    check_can_enter(db, product, ticket_count)
+    if amount_paid != ticket_count * product.ticket_price:
+        raise RaffleEntryError("결제 금액이 응모권 가격과 맞지 않습니다")
+    sold = get_sold_ticket_count(db, raffle_product_id)
+
+    # 이미 이 상품에 응모한 적이 있으면 그 번호를 그대로 쓰고, 처음이면 새 번호를 부여한다
+    entry_number = get_existing_entry_number(db, raffle_product_id, user_id)
+    if entry_number is None:
+        entry_number = get_next_entry_number(db, raffle_product_id)
+
+    entry = create_raffle_entry(
+        db,
+        raffle_product_id=raffle_product_id,
+        user_id=user_id,
+        ticket_count=ticket_count,
+        amount_paid=amount_paid,
+        entry_number=entry_number,
+        payment_id=payment_id,
+    )
+    # 이번 구매로 매진됐으면 매진 시각을 남긴다 — 이 시각부터 RAFFLE_DRAW_DELAY_SECONDS 뒤에 자동 추첨
+    if sold + ticket_count >= product.total_slots:
+        product.sold_out_at = _utcnow()
     return entry
 
 
@@ -156,10 +207,10 @@ def get_closed_undrawn_products(db: Session) -> list[RaffleProduct]:
     return eligible
 
 
-# 이 상품에 응모한 유저별 총 응모권 수와 사용한 포인트
+# 이 상품에 응모한 유저별 총 응모권 수와 결제 금액
 def get_user_ticket_totals(db: Session, raffle_product_id: int) -> list[tuple[int, int, int]]:
     rows = (
-        db.query(RaffleEntry.user_id, func.sum(RaffleEntry.ticket_count), func.sum(RaffleEntry.points_spent))
+        db.query(RaffleEntry.user_id, func.sum(RaffleEntry.ticket_count), func.sum(RaffleEntry.amount_paid))
         .filter(RaffleEntry.raffle_product_id == raffle_product_id)
         .group_by(RaffleEntry.user_id)
         .all()
@@ -167,9 +218,10 @@ def get_user_ticket_totals(db: Session, raffle_product_id: int) -> list[tuple[in
     return [(user_id, int(tickets), int(points)) for user_id, tickets, points in rows]
 
 
-# 응모 기간이 끝났는데 매진되지 못한 상품을 취소하고, 응모자에게 사용한 운포인트를 환급한다.
+# 응모 기간이 끝났는데 매진되지 못한 상품을 취소하고, 응모권 결제를 카드 취소 대기로 돌린다.
+# 실제 카드 취소는 crud/payment.process_cancellations가 포트원에 요청한다 (실패해도 다음 주기에 다시 시도).
 # 서버 주기 작업(app/main.py의 settle_loop)에서 실행된다.
-# 행 잠금 후 status == "open"인 것만 처리하므로 동시에 여러 요청이 와도 한 번만 환급된다.
+# 행 잠금 후 status == "open"인 것만 처리하므로 동시에 여러 요청이 와도 한 번만 처리된다.
 def cancel_expired_raffles(db: Session) -> None:
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     expired = (
@@ -188,15 +240,15 @@ def cancel_expired_raffles(db: Session) -> None:
         if sold_map.get(product.raffle_product_id, 0) >= product.total_slots:
             continue
         product.status = "cancelled"
-        for user_id, tickets, points in get_user_ticket_totals(db, product.raffle_product_id):
-            point_crud.apply_point_change(
-                db,
-                user_id=user_id,
-                point_type="woon",
-                amount=points,
-                reason="refund",
-                reference_id=product.raffle_product_id,
-                description=f"{product.product_name} 응모 취소 환급 ({tickets}장)",
+        payment_ids = [
+            pid for (pid,) in db.query(RaffleEntry.payment_id).filter(
+                RaffleEntry.raffle_product_id == product.raffle_product_id, RaffleEntry.payment_id.isnot(None),
+            )
+        ]
+        if payment_ids:
+            db.query(Payment).filter(Payment.payment_id.in_(payment_ids), Payment.status == "paid").update(
+                {"status": "cancel_requested", "cancel_reason": "응모 기간 안에 매진되지 않아 응모가 취소되었습니다"},
+                synchronize_session=False,
             )
     db.commit()
 
@@ -244,7 +296,6 @@ def save_draw_result(
         point_crud.apply_point_change(
             db,
             user_id=user_id,
-            point_type="ssal",
             amount=tickets * product.ticket_price,
             reason="raffle_consolation",
             reference_id=product.raffle_product_id,

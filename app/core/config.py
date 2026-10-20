@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     CLOUDINARY_API_SECRET: str
     # 도로명주소 검색 API 승인키 (business.juso.go.kr 에서 발급). 없으면 주소 검색이 비활성화된다
     JUSO_API_KEY: Optional[str] = None
+    # 포트원 V2 API Secret (관리자콘솔 > 연동 정보 > 식별코드·API Keys). 없으면 본인인증이 비활성화된다
+    PORTONE_API_SECRET: Optional[str] = None
+    # 포트원 상점 아이디 (store-xxxx). 선택값
+    PORTONE_STORE_ID: Optional[str] = None
 
 
     class Config:

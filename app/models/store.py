@@ -8,8 +8,8 @@ class StoreProduct(Base):
     admin_id          = Column(Integer, ForeignKey("users.user_id"), nullable=False)
     product_name      = Column(String(200), nullable=False)
     description       = Column(Text, nullable=True)
-    point_type        = Column(Enum("woon", "ssal", name="store_point_type"), nullable=False)
-    # 상점 세부 탭 분류 — 운포인트: figure/goods/card, 쌀포인트: coupon/goods/avatar
+    pay_type          = Column(Enum("cash", "ssal", name="store_pay_type"), nullable=False)   # cash: 카드 결제(원), ssal: 쌀포인트
+    # 상점 세부 탭 분류 — 결제 상점: figure/goods/card, 쌀포인트 상점: coupon/goods/avatar
     category          = Column(Enum("figure", "goods", "card", "coupon", "avatar", name="store_category"), nullable=True)
     price             = Column(Integer, nullable=False)
     stock             = Column(Integer, nullable=False)

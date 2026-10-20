@@ -1,5 +1,4 @@
 from pydantic import BaseModel, EmailStr
-from datetime import datetime
 from typing import Literal, Optional
 
 class UserSignup(BaseModel):
@@ -7,8 +6,15 @@ class UserSignup(BaseModel):
     nickname: str
     email: EmailStr
     password: str
+    identity_verification_id: str     # 포트원 본인인증 ID (전화번호·인증시간은 서버가 포트원에서 직접 조회)
+
+
+class IdentityVerifyRequest(BaseModel):   # 본인인증 결과 확인 요청
+    identity_verification_id: str
+
+class IdentityVerifyResponse(BaseModel):  # 본인인증 결과 (가입 폼에 보여줄 값)
+    name: Optional[str] = None
     phone: str
-    phone_verified_at: datetime       # 본인인증 완료 시간
 
 
 class UserLogin(BaseModel):        # 로그인 요청

@@ -39,7 +39,6 @@ def purchase_avatar_item(item_id: str, user: User = Depends(get_current_user), d
         transaction = point_crud.apply_point_change(
             db,
             user_id=user.user_id,
-            point_type="ssal",
             amount=-item["price"],
             reason="avatar_purchase",
             reference_id=owned.user_avatar_item_id,
