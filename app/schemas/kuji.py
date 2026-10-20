@@ -79,10 +79,6 @@ class KujiBoardResponse(BaseModel):
     drawn: list[KujiDrawnTicket]
 
 
-class KujiDrawRequest(BaseModel):
-    ticket_numbers: list[int]
-
-
 class KujiDrawnPrize(BaseModel):
     ticket_number: int
     kuji_prize_id: int
@@ -97,11 +93,11 @@ class KujiLastOnePrize(BaseModel):
     image_url: Optional[str] = None
 
 
-# 뽑기 결과 — ok=False면 고른 제비 중 이미 나간 게 있어서 아무것도 뽑지 않았다 (부분 뽑기 없음)
+# 뽑기 결과 — ok=False면 고른 제비 중 이미 나간 게 있어서 아무것도 뽑지 않았다 (부분 뽑기 없음, 결제는 자동 취소)
 class KujiDrawResponse(BaseModel):
     ok: bool
     drawn: list[KujiDrawnPrize] = []
     last_one: Optional[KujiLastOnePrize] = None
-    points_spent: int = 0
+    amount_paid: int = 0   # 결제 금액(원)
     conflict_ticket_numbers: list[int] = []
     board: KujiBoardResponse

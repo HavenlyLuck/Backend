@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, DateTime, Enum, ForeignKey
+from sqlalchemy import Column, Integer, String, DateTime, Enum, ForeignKey
 from sqlalchemy.sql import func
 from app.database import Base
 
@@ -12,7 +12,8 @@ class StorageItem(Base):
     kuji_set_id       = Column(Integer, ForeignKey("kuji_sets.kuji_set_id"), nullable=True)      # 쿠지 당첨 (라스트원상은 kuji_prize_id 없이 이것만)
     kuji_prize_id     = Column(Integer, ForeignKey("kuji_prizes.kuji_prize_id"), nullable=True)
     quantity          = Column(Integer, nullable=False, default=1, server_default="1")
-    points_spent      = Column(Integer, nullable=True)     # 상점 구매 시 차감된 포인트 스냅샷
+    amount_spent      = Column(Integer, nullable=True)     # 쓴 금액 스냅샷 — 결제 상점·쿠지는 원, 쌀포인트 상점은 쌀포인트
+    payment_id        = Column(String(64), ForeignKey("payments.payment_id"), nullable=True)   # 카드 결제로 받은 경우 그 결제
     status            = Column(Enum("ready", "requested", "shipped", name="storage_status"), nullable=False, default="ready", server_default="ready")
     address_id        = Column(Integer, ForeignKey("shipping_addresses.address_id"), nullable=True)   # 배송 신청 시 선택한 배송지
     requested_at      = Column(DateTime, nullable=True)

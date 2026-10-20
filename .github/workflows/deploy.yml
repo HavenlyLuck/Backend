@@ -83,7 +83,9 @@ jobs:
               { "name": "CLOUDINARY_CLOUD_NAME", "value": "${{ secrets.CLOUDINARY_CLOUD_NAME }}" },
               { "name": "CLOUDINARY_API_KEY", "value": "${{ secrets.CLOUDINARY_API_KEY }}" },
               { "name": "CLOUDINARY_API_SECRET", "value": "${{ secrets.CLOUDINARY_API_SECRET }}" },
-              { "name": "JUSO_API_KEY", "value": "${{ secrets.JUSO_API_KEY }}" }
+              { "name": "JUSO_API_KEY", "value": "${{ secrets.JUSO_API_KEY }}" },
+              { "name": "PORTONE_API_SECRET", "value": "${{ secrets.PORTONE_API_SECRET }}" },
+              { "name": "PORTONE_STORE_ID", "value": "${{ secrets.PORTONE_STORE_ID }}" }
 
             ]
 

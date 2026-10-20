@@ -9,6 +9,7 @@ class User(Base):
     nickname          = Column(String(50), unique=True, nullable=False)
     email             = Column(String(100), unique=True, nullable=False)
     password          = Column(String(255), nullable=False)
+    name              = Column(String(50), nullable=True)    # 본인인증 실명 (결제창 구매자 이름). 예전 가입자는 비어 있음
     phone             = Column(String(20), unique=True, nullable=False)
     phone_verified_at = Column(DateTime, nullable=False)
     avatar_url        = Column(String(500), nullable=True)

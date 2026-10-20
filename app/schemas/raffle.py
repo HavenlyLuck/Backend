@@ -41,15 +41,11 @@ class RaffleProductResponse(BaseModel):
         return max(0, self.total_slots - self.sold_slots)
 
 
-class RaffleEntryCreate(BaseModel):
-    ticket_count: int
-
-
 class RaffleEntryResponse(BaseModel):
     entry_id: int
     raffle_product_id: int
     ticket_count: int
-    points_spent: int
+    amount_paid: int   # 결제 금액(원)
     created_at: datetime
     entry_number: int
 
@@ -76,7 +72,7 @@ class MyRaffleEntryResponse(BaseModel):
     entry_id: int
     raffle_product_id: int
     ticket_count: int
-    points_spent: int
+    amount_paid: int   # 결제 금액(원)
     entry_number: int
     created_at: datetime
     product_name: str

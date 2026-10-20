@@ -23,14 +23,15 @@ def add_raffle_win(db: Session, user_id: int, raffle_product_id: int) -> Storage
 
 # 상점 구매와 같은 트랜잭션에서 호출한다 (commit은 호출한 쪽에서)
 def add_store_purchase(
-    db: Session, user_id: int, store_product_id: int, quantity: int, points_spent: int
+    db: Session, user_id: int, store_product_id: int, quantity: int, amount_spent: int, payment_id: Optional[str] = None,
 ) -> StorageItem:
     item = StorageItem(
         user_id=user_id,
         source="store",
         store_product_id=store_product_id,
         quantity=quantity,
-        points_spent=points_spent,
+        amount_spent=amount_spent,
+        payment_id=payment_id,
     )
     db.add(item)
     db.flush()
@@ -40,7 +41,8 @@ def add_store_purchase(
 # 쿠지 뽑기와 같은 트랜잭션에서 호출한다 (commit은 호출한 쪽에서)
 # 라스트원상은 kuji_prize_id 없이 kuji_set_id만 남긴다
 def add_kuji_win(
-    db: Session, user_id: int, kuji_set_id: int, kuji_prize_id: Optional[int], quantity: int, points_spent: Optional[int]
+    db: Session, user_id: int, kuji_set_id: int, kuji_prize_id: Optional[int], quantity: int, amount_spent: Optional[int],
+    payment_id: Optional[str] = None,
 ) -> StorageItem:
     item = StorageItem(
         user_id=user_id,
@@ -48,7 +50,8 @@ def add_kuji_win(
         kuji_set_id=kuji_set_id,
         kuji_prize_id=kuji_prize_id,
         quantity=quantity,
-        points_spent=points_spent,
+        amount_spent=amount_spent,
+        payment_id=payment_id,
     )
     db.add(item)
     db.flush()
@@ -94,8 +97,8 @@ def get_user_storage_items(db: Session, user_id: int) -> list[dict]:
             "image_url": image_url,
             "quantity": item.quantity,
             "price_krw": raffle.price_krw if raffle else None,
-            "point_type": store.point_type if store else ("woon" if item.source == "kuji" and item.points_spent else None),
-            "points_spent": item.points_spent,
+            "pay_type": store.pay_type if store else ("cash" if item.source == "kuji" and item.amount_spent else None),
+            "amount_spent": item.amount_spent,
             "status": item.status,
             "address_id": item.address_id,
             "requested_at": item.requested_at,

@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from typing import Optional
 
 from app.models.kuji import KujiSet, KujiPrize, KujiTicket
-from app.crud import point as point_crud
+from app.models.storage import StorageItem
 from app.crud import storage as storage_crud
 
 _rng = random.SystemRandom()
@@ -95,16 +95,14 @@ class KujiDrawError(Exception):
     pass
 
 
-# 쿠지 뽑기 — 세트 행을 잠가서 같은 판의 뽑기를 한 줄로 세운다.
-# 고른 제비 중 하나라도 이미 나갔으면 아무것도 하지 않고 그 번호들을 돌려준다(부분 뽑기 없음).
-# 포인트 차감 · 제비 확정 · 상품 남은 개수 · 보관함 적재 · 라스트원상까지 한 트랜잭션.
-# 반환: (세트, 뽑은 [(제비, 상품)], 충돌 번호, 라스트원상 받았는지, 쓴 포인트)
-def draw_kuji(db: Session, kuji_set_id: int, user_id: int, ticket_numbers: list[int]):
-    kuji = db.query(KujiSet).filter(KujiSet.kuji_set_id == kuji_set_id).with_for_update().first()
+# 고른 제비를 뽑을 수 있는지 확인 — 판매 중이 아니거나 없는 번호면 KujiDrawError, 이미 나간 번호는 돌려준다
+# 반환: (세트, 고른 제비들, 이미 나간 번호)
+def check_tickets(db: Session, kuji_set_id: int, ticket_numbers: list[int], for_update: bool = False):
+    query = db.query(KujiSet).filter(KujiSet.kuji_set_id == kuji_set_id)
+    kuji = (query.with_for_update() if for_update else query).first()
     if not kuji:
         raise LookupError("쿠지를 찾을 수 없습니다")
     if kuji.status != "open" or kuji.remaining_tickets <= 0:
-        db.rollback()
         raise KujiDrawError("판매가 끝난 쿠지입니다")
 
     tickets = (
@@ -113,27 +111,21 @@ def draw_kuji(db: Session, kuji_set_id: int, user_id: int, ticket_numbers: list[
         .all()
     )
     if len(tickets) != len(ticket_numbers):
-        db.rollback()
         raise KujiDrawError("없는 제비 번호가 있습니다")
     conflicts = sorted(t.ticket_number for t in tickets if t.drawn_at is not None)
-    if conflicts:
-        db.rollback()
-        return kuji, [], conflicts, False, 0
+    return kuji, tickets, conflicts
 
-    points_spent = kuji.ticket_price * len(tickets)
-    try:
-        point_crud.apply_point_change(
-            db,
-            user_id=user_id,
-            point_type="woon",
-            amount=-points_spent,
-            reason="kuji_draw",
-            reference_id=kuji.kuji_set_id,
-            description=f"{kuji.title} 쿠지 {len(tickets)}장",
-        )
-    except ValueError as e:
-        db.rollback()
-        raise KujiDrawError(str(e))
+
+# 결제가 확인된 뒤 제비를 확정한다 — 세트 행을 잠가서 같은 판의 뽑기를 한 줄로 세운다. (commit은 호출한 쪽에서)
+# 고른 제비 중 하나라도 이미 나갔으면 아무것도 하지 않고 그 번호들을 돌려준다(부분 뽑기 없음 → 호출한 쪽이 결제를 취소).
+# 제비 확정 · 상품 남은 개수 · 보관함 적재 · 라스트원상까지 한 트랜잭션.
+# 반환: (세트, 뽑은 [(제비, 상품)], 충돌 번호, 라스트원상 받았는지)
+def fulfill_kuji_draw(db: Session, kuji_set_id: int, user_id: int, ticket_numbers: list[int], amount_paid: int, payment_id: str):
+    kuji, tickets, conflicts = check_tickets(db, kuji_set_id, ticket_numbers, for_update=True)
+    if conflicts:
+        return kuji, [], conflicts, False
+    if amount_paid != kuji.ticket_price * len(tickets):
+        raise KujiDrawError("결제 금액이 제비 가격과 맞지 않습니다")
 
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     prizes = {p.kuji_prize_id: p for p in kuji.prizes}
@@ -148,7 +140,7 @@ def draw_kuji(db: Session, kuji_set_id: int, user_id: int, ticket_numbers: list[
     for prize_id, qty in won.items():
         storage_crud.add_kuji_win(
             db, user_id=user_id, kuji_set_id=kuji.kuji_set_id, kuji_prize_id=prize_id,
-            quantity=qty, points_spent=kuji.ticket_price * qty,
+            quantity=qty, amount_spent=kuji.ticket_price * qty, payment_id=payment_id,
         )
 
     kuji.remaining_tickets -= len(tickets)
@@ -160,9 +152,30 @@ def draw_kuji(db: Session, kuji_set_id: int, user_id: int, ticket_numbers: list[
         if kuji.last_one_name:
             kuji.last_one_user_id = user_id
             storage_crud.add_kuji_win(
-                db, user_id=user_id, kuji_set_id=kuji.kuji_set_id, kuji_prize_id=None, quantity=1, points_spent=None,
+                db, user_id=user_id, kuji_set_id=kuji.kuji_set_id, kuji_prize_id=None, quantity=1,
+                amount_spent=None, payment_id=payment_id,
             )
 
-    db.commit()
-    db.refresh(kuji)
-    return kuji, [(t, prizes[t.kuji_prize_id]) for t in tickets], [], got_last_one and bool(kuji.last_one_name), points_spent
+    db.flush()
+    return kuji, [(t, prizes[t.kuji_prize_id]) for t in tickets], [], got_last_one and bool(kuji.last_one_name)
+
+
+# 이미 지급한 쿠지 결제의 결과를 다시 만든다 (결제 완료 요청이 두 번 와도 같은 결과를 돌려주기 위함)
+def get_paid_draw(db: Session, kuji_set_id: int, user_id: int, ticket_numbers: list[int], payment_id: str):
+    kuji = get_kuji_set(db, kuji_set_id)
+    tickets = (
+        db.query(KujiTicket)
+        .filter(
+            KujiTicket.kuji_set_id == kuji_set_id,
+            KujiTicket.ticket_number.in_(ticket_numbers),
+            KujiTicket.drawn_by_user_id == user_id,
+        )
+        .all()
+    )
+    tickets.sort(key=lambda t: ticket_numbers.index(t.ticket_number))
+    prizes = {p.kuji_prize_id: p for p in kuji.prizes}
+    # 라스트원상은 같은 결제로 보관함에 들어간 상품 없는(kuji_prize_id 없는) 항목으로 알 수 있다
+    got_last_one = db.query(StorageItem).filter(
+        StorageItem.payment_id == payment_id, StorageItem.kuji_prize_id.is_(None),
+    ).first() is not None
+    return kuji, [(t, prizes[t.kuji_prize_id]) for t in tickets], got_last_one

@@ -8,12 +8,14 @@ from app.models.user import User
 from app.schemas.user import (
     UserSignup, UserLogin, UserResponse, TokenResponse,
     RefreshRequest, RefreshResponse, DuplCheckRequest, DuplCheckResponse,
+    IdentityVerifyRequest, IdentityVerifyResponse,
 )
 from app.core.security import hash_password, verify_password, create_token, decode_token
 from app.core.dependencies import get_current_user
 from app.schemas.avatar import AvatarConfig
 from app.core.avatar_items import AVATAR_ITEM_SLOTS, OVERLAY_SLOTS, find_item_id
 from app.crud import avatar_item as avatar_item_crud
+from app.services.portone import get_verified_identity, PortOneError
 
 router = APIRouter()
 
@@ -42,6 +44,22 @@ def update_my_avatar(body: AvatarConfig, user: User = Depends(get_current_user),
     db.refresh(user)
     return user
 
+# 포트원 본인인증 결과를 조회해서, 인증이 안 됐거나 이미 가입된 번호면 400
+def _verify_identity(identity_verification_id: str, db: Session) -> dict:
+    try:
+        identity = get_verified_identity(identity_verification_id)
+    except PortOneError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if db.query(User).filter(User.phone == identity["phone"]).first():
+        raise HTTPException(status_code=400, detail="이미 가입된 휴대폰 번호입니다")
+    return identity
+
+# 본인인증 결과 확인 (가입 폼에 인증된 번호를 보여주기 위함)
+@router.post("/identity-verification", response_model=IdentityVerifyResponse)
+def verify_identity(body: IdentityVerifyRequest, db: Session = Depends(get_db)):
+    identity = _verify_identity(body.identity_verification_id, db)
+    return IdentityVerifyResponse(name=identity["name"], phone=identity["phone"])
+
 # 회원가입
 @router.post("/signup", response_model=UserResponse)
 def signup(body: UserSignup, db: Session = Depends(get_db)):
@@ -52,16 +70,17 @@ def signup(body: UserSignup, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="이미 사용중인 닉네임입니다")
     if db.query(User).filter(User.email == body.email).first():
         raise HTTPException(status_code=400, detail="이미 사용중인 이메일입니다")
-    if db.query(User).filter(User.phone == body.phone).first():
-        raise HTTPException(status_code=400, detail="이미 사용중인 전화번호입니다")
+    # 전화번호는 클라이언트 값을 믿지 않고 포트원에서 인증된 번호를 쓴다
+    identity = _verify_identity(body.identity_verification_id, db)
 
     user = User(
         login_id=body.login_id,
         nickname=body.nickname,
         email=body.email,
         password=hash_password(body.password),
-        phone=body.phone,
-        phone_verified_at=body.phone_verified_at
+        name=identity["name"],
+        phone=identity["phone"],
+        phone_verified_at=identity["verified_at"],
     )
     db.add(user)
     db.commit()

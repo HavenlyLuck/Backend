@@ -12,7 +12,7 @@ class KujiSet(Base):
     title              = Column(String(200), nullable=False)
     description        = Column(Text, nullable=True)
     image_url          = Column(String(500), nullable=True)   # 목록·배너용 대표 이미지 (상위상 사진과 별개)
-    ticket_price       = Column(Integer, nullable=False)      # 제비 1장당 운포인트
+    ticket_price       = Column(Integer, nullable=False)      # 제비 1장당 가격(원)
     total_tickets      = Column(Integer, nullable=False)      # 상위상 + 하위상 개수 합 (라스트원상은 안 들어감)
     remaining_tickets  = Column(Integer, nullable=False)
     status             = Column(Enum("open", "sold_out", "closed", name="kuji_status"), nullable=False, default="open", server_default="open")

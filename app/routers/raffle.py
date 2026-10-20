@@ -1,7 +1,6 @@
 # app/routers/raffle.py
 from fastapi import APIRouter, Depends, Form, File, UploadFile, HTTPException, Query
 from sqlalchemy.orm import Session
-from datetime import datetime, timezone
 from typing import Optional, Literal
 
 from app.database import get_db
@@ -9,13 +8,11 @@ from app.core.dependencies import get_current_admin, get_current_user
 from app.core.config import RAFFLE_TICKET_PRICE, RAFFLE_DURATION_DAYS_OPTIONS
 from app.models.user import User
 from app.schemas.raffle import (
-    RaffleProductResponse, RaffleEntryCreate, RaffleEntryResponse,
-    RaffleEntryCreateResponse, MyRaffleEntryResponse, RaffleEntrantResponse,
+    RaffleProductResponse, RaffleEntryResponse, MyRaffleEntryResponse, RaffleEntrantResponse,
     RaffleDrawCastResponse,
 )
 from app.services.cloudinary import upload_image
 from app.crud import raffle as raffle_crud
-from app.crud import point as point_crud
 
 router = APIRouter()
 
@@ -80,66 +77,7 @@ def get_raffle_product(raffle_product_id: int, db: Session = Depends(get_db)):
     return product
 
 
-# 응모 참여 — 운포인트를 차감하고 응모권을 발급한다
-@router.post("/{raffle_product_id}/entries", response_model=RaffleEntryCreateResponse)
-def create_raffle_entry(
-    raffle_product_id: int,
-    payload: RaffleEntryCreate,
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    if payload.ticket_count <= 0:
-        raise HTTPException(status_code=400, detail="응모권 수는 1장 이상이어야 합니다")
-
-    # 행 잠금으로 조회 → 동시 응모 시에도 total_slots를 넘겨 팔지 않도록 보장
-    product = raffle_crud.get_raffle_product_for_update(db, raffle_product_id)
-    if not product:
-        raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다")
-
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
-    if product.status != "open" or product.ends_at <= now:
-        raise HTTPException(status_code=400, detail="마감된 응모입니다")
-
-    sold = raffle_crud.get_sold_ticket_count(db, raffle_product_id)
-    if sold + payload.ticket_count > product.total_slots:
-        raise HTTPException(status_code=400, detail="남은 응모권이 부족합니다")
-
-    # 이미 이 상품에 응모한 적이 있으면 그 번호를 그대로 쓰고, 처음이면 새 번호를 부여한다
-    entry_number = raffle_crud.get_existing_entry_number(db, raffle_product_id, user.user_id)
-    if entry_number is None:
-        entry_number = raffle_crud.get_next_entry_number(db, raffle_product_id)
-
-    entry = raffle_crud.create_raffle_entry(
-        db,
-        raffle_product_id=raffle_product_id,
-        user_id=user.user_id,
-        ticket_count=payload.ticket_count,
-        points_spent=payload.ticket_count * product.ticket_price,
-        entry_number=entry_number,
-    )
-
-    # 이번 구매로 매진됐으면 매진 시각을 남긴다 — 이 시각부터 RAFFLE_DRAW_DELAY_SECONDS 뒤에 자동 추첨
-    if sold + payload.ticket_count >= product.total_slots:
-        product.sold_out_at = now
-
-    try:
-        point_crud.apply_point_change(
-            db,
-            user_id=user.user_id,
-            point_type="woon",
-            amount=-entry.points_spent,
-            reason="raffle_entry",
-            reference_id=entry.entry_id,
-            description=f"{product.product_name} 응모 ({payload.ticket_count}장)",
-        )
-    except ValueError as e:
-        db.rollback()
-        raise HTTPException(status_code=400, detail=str(e))
-
-    db.commit()
-    db.refresh(entry)
-    entry.total_ticket_count = raffle_crud.get_user_total_ticket_count(db, raffle_product_id, user.user_id)
-    return entry
+# 응모 참여(응모권 결제)는 /payments 에서 처리한다 (app/routers/payment.py)
 
 
 # 특정 응모 상품에 대한 내 응모 내역

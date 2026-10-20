@@ -7,11 +7,11 @@ from typing import Optional, Literal
 
 from app.database import get_db
 from app.core.config import KUJI_TICKET_PRICE, KUJI_MAX_TICKETS, KUJI_MAX_DRAW
-from app.core.dependencies import get_current_admin, get_current_user
+from app.core.dependencies import get_current_admin
 from app.models.user import User
 from app.schemas.kuji import (
     KujiPrizeCreate, KujiSetResponse, KujiSetAdminResponse, KujiBoardResponse, KujiDrawnTicket,
-    KujiDrawRequest, KujiDrawResponse, KujiDrawnPrize, KujiLastOnePrize,
+    KujiDrawResponse, KujiDrawnPrize, KujiLastOnePrize,
 )
 from app.services.cloudinary import upload_image
 from app.crud import kuji as kuji_crud
@@ -133,7 +133,7 @@ def get_kuji_set(kuji_set_id: int, db: Session = Depends(get_db)):
     return kuji
 
 
-def _board(db: Session, kuji) -> KujiBoardResponse:
+def build_board(db: Session, kuji) -> KujiBoardResponse:
     return KujiBoardResponse(
         kuji_set_id=kuji.kuji_set_id,
         version=kuji.board_version,
@@ -151,18 +151,11 @@ def get_kuji_board(kuji_set_id: int, since: Optional[int] = Query(None), db: Ses
         raise HTTPException(status_code=404, detail="쿠지를 찾을 수 없습니다")
     if since is not None and since == kuji.board_version:
         return None
-    return _board(db, kuji)
+    return build_board(db, kuji)
 
 
-# 쿠지 뽑기 — 고른 제비 번호들을 한 번에 확정한다 (최대 KUJI_MAX_DRAW장)
-@router.post("/{kuji_set_id}/draw", response_model=KujiDrawResponse)
-def draw_kuji(
-    kuji_set_id: int,
-    payload: KujiDrawRequest,
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_user),
-):
-    numbers = payload.ticket_numbers
+# 쿠지 뽑기(제비 결제)는 /payments 에서 처리한다 (app/routers/payment.py)
+def validate_ticket_numbers(numbers: list[int]) -> None:
     if not numbers:
         raise HTTPException(status_code=400, detail="뽑을 제비를 골라주세요")
     if len(numbers) > KUJI_MAX_DRAW:
@@ -170,13 +163,8 @@ def draw_kuji(
     if len(set(numbers)) != len(numbers):
         raise HTTPException(status_code=400, detail="같은 제비를 두 번 고를 수 없습니다")
 
-    try:
-        kuji, drawn, conflicts, got_last_one, points_spent = kuji_crud.draw_kuji(db, kuji_set_id, user.user_id, numbers)
-    except LookupError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except kuji_crud.KujiDrawError as e:
-        raise HTTPException(status_code=400, detail=str(e))
 
+def build_draw_response(db: Session, kuji, drawn, conflicts: list[int], got_last_one: bool, amount_paid: int) -> KujiDrawResponse:
     return KujiDrawResponse(
         ok=not conflicts,
         drawn=[
@@ -187,7 +175,7 @@ def draw_kuji(
             for t, p in drawn
         ],
         last_one=KujiLastOnePrize(name=kuji.last_one_name, image_url=kuji.last_one_image_url) if got_last_one else None,
-        points_spent=points_spent,
+        amount_paid=amount_paid,
         conflict_ticket_numbers=conflicts,
-        board=_board(db, kuji),
+        board=build_board(db, kuji),
     )
