@@ -61,7 +61,12 @@ app = FastAPI(title="HavenlyLuck API", lifespan=lifespan)
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "https://havenlyluck-frontend.vercel.app"],
+    allow_origins=[
+        "http://localhost:3000",
+        "https://havenlyluck-frontend.vercel.app",
+        "https://havenlyluck.com",
+        "https://www.havenlyluck.com",
+    ],
     # 로컬 개발 — 같은 와이파이의 다른 기기에서 http://<사설 IP>:3000 으로 접속하는 경우
     allow_origin_regex=r"http://(192\.168|10|172\.(1[6-9]|2\d|3[01]))(\.\d{1,3}){2,3}:3000",
     allow_credentials=True,
