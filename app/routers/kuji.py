@@ -15,6 +15,7 @@ from app.schemas.kuji import (
 )
 from app.services.cloudinary import upload_image
 from app.crud import kuji as kuji_crud
+from app.crud import inventory as inventory_crud
 
 router = APIRouter()
 
@@ -35,6 +36,7 @@ def create_kuji_set(
     last_one_name: Optional[str] = Form(None),
     last_one_cost: Optional[int] = Form(None),
     last_one_image: Optional[UploadFile] = File(None),
+    last_one_inventory_item_id: Optional[int] = Form(None),
     db: Session = Depends(get_db),
     admin: User = Depends(get_current_admin),
 ):
@@ -83,6 +85,16 @@ def create_kuji_set(
             uploaded[it.image_index] = upload_image(prize_images[it.image_index], folder="kuji_prizes")
     last_one_image_url = upload_image(last_one_image, folder="kuji_prizes") if last_one_name and last_one_image else None
 
+    try:
+        return _create_kuji(db, admin, title, description, image_url, ticket_price, items, uploaded,
+                            last_one_name, last_one_image_url, last_one_cost, last_one_inventory_item_id)
+    except inventory_crud.InventoryError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+def _create_kuji(db, admin, title, description, image_url, ticket_price, items, uploaded,
+                 last_one_name, last_one_image_url, last_one_cost, last_one_inventory_item_id):
     return kuji_crud.create_kuji_set(
         db,
         admin_id=admin.user_id,
@@ -97,13 +109,31 @@ def create_kuji_set(
                 "quantity": it.quantity,
                 "cost": it.cost,
                 "image_url": uploaded.get(it.image_index) if it.image_index is not None else None,
+                "inventory_item_id": it.inventory_item_id,
             }
             for it in items
         ],
         last_one_name=last_one_name,
         last_one_image_url=last_one_image_url,
         last_one_cost=(last_one_cost or 0) if last_one_name else None,
+        last_one_inventory_item_id=last_one_inventory_item_id,
     )
+
+
+# 쿠지 판매 종료 (관리자) — 이미 뽑힌 제비는 그대로, 안 뽑힌 상품·라스트원상은 재고로 돌아간다(crud/inventory.py)
+@router.post("/{kuji_set_id}/close", response_model=KujiSetAdminResponse)
+def close_kuji_set(kuji_set_id: int, db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
+    kuji = kuji_crud.get_kuji_set_for_update(db, kuji_set_id)
+    if not kuji:
+        db.rollback()
+        raise HTTPException(status_code=404, detail="쿠지를 찾을 수 없습니다")
+    if kuji.status != "open":
+        db.rollback()
+        raise HTTPException(status_code=400, detail="판매 중인 쿠지만 종료할 수 있습니다")
+    kuji.status = "closed"
+    db.commit()
+    db.refresh(kuji)
+    return kuji
 
 
 # 관리자용 쿠지 목록 — 원가·예상 매출 포함

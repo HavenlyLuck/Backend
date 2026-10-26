@@ -36,3 +36,7 @@ class StorePurchaseResponse(BaseModel):
     amount_spent: int
     pay_type: Literal["cash", "ssal"]
     remaining_stock: int
+
+
+class StoreStockUpdate(BaseModel):
+    stock: int

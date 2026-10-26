@@ -10,6 +10,7 @@ from app.models.payment import Payment
 from app.models.user import User
 from app.crud import storage as storage_crud
 from app.crud import point as point_crud
+from app.crud import inventory as inventory_crud
 
 
 def create_raffle_product(
@@ -20,7 +21,11 @@ def create_raffle_product(
     price_krw: int,
     image_url: str,
     duration_days: int,
+    inventory_item_id: Optional[int] = None,
 ) -> RaffleProduct:
+    # 재고에서 고른 품목이면 1개를 이 응모에 묶는다 (모자라면 InventoryError)
+    if inventory_item_id is not None:
+        inventory_crud.check_available(db, [(inventory_item_id, 1)])
     starts_at = datetime.now(timezone.utc).replace(tzinfo=None)
     duration = (
         timedelta(minutes=RAFFLE_DURATION_OVERRIDE_MINUTES)
@@ -39,6 +44,9 @@ def create_raffle_product(
         ends_at=starts_at + duration,
     )
     db.add(product)
+    db.flush()
+    if inventory_item_id is not None:
+        inventory_crud.add_link(db, inventory_item_id, "raffle", product.raffle_product_id)
     db.commit()
     db.refresh(product)
     return product
@@ -239,18 +247,43 @@ def cancel_expired_raffles(db: Session) -> None:
         # 매진된 상품은 시간이 지나도 추첨 대기 상태로 남는다
         if sold_map.get(product.raffle_product_id, 0) >= product.total_slots:
             continue
-        product.status = "cancelled"
-        payment_ids = [
-            pid for (pid,) in db.query(RaffleEntry.payment_id).filter(
-                RaffleEntry.raffle_product_id == product.raffle_product_id, RaffleEntry.payment_id.isnot(None),
-            )
-        ]
-        if payment_ids:
-            db.query(Payment).filter(Payment.payment_id.in_(payment_ids), Payment.status == "paid").update(
-                {"status": "cancel_requested", "cancel_reason": "응모 기간 안에 매진되지 않아 응모가 취소되었습니다"},
-                synchronize_session=False,
-            )
+        _cancel_raffle(db, product, "응모 기간 안에 매진되지 않아 응모가 취소되었습니다")
     db.commit()
+
+
+# 응모를 취소하고 응모권 결제를 카드 취소 대기로 돌린다 (commit은 호출한 쪽에서). 반환: 환불할 payment_id들
+def _cancel_raffle(db: Session, product: RaffleProduct, reason: str) -> list[str]:
+    product.status = "cancelled"
+    payment_ids = [
+        pid for (pid,) in db.query(Payment.payment_id)
+        .join(RaffleEntry, RaffleEntry.payment_id == Payment.payment_id)
+        .filter(RaffleEntry.raffle_product_id == product.raffle_product_id, Payment.status == "paid")
+    ]
+    if payment_ids:
+        db.query(Payment).filter(Payment.payment_id.in_(payment_ids)).update(
+            {"status": "cancel_requested", "cancel_reason": reason},
+            synchronize_session=False,
+        )
+    return payment_ids
+
+
+class RaffleCancelError(Exception):
+    pass
+
+
+# 관리자 응모 취소 — 매진 전에만. 산 사람 전원 환불, 묶어 둔 재고는 자동으로 돌아간다(crud/inventory.py)
+def cancel_raffle_by_admin(db: Session, raffle_product_id: int) -> tuple[RaffleProduct, list[str]]:
+    product = get_raffle_product_for_update(db, raffle_product_id)
+    if not product:
+        raise LookupError("상품을 찾을 수 없습니다")
+    if product.status != "open":
+        raise RaffleCancelError("진행 중인 응모만 취소할 수 있습니다")
+    if get_sold_ticket_count(db, raffle_product_id) >= product.total_slots:
+        raise RaffleCancelError("매진된 응모는 취소할 수 없습니다 (곧 추첨돼요)")
+    payment_ids = _cancel_raffle(db, product, "관리자가 응모를 취소했습니다")
+    db.commit()
+    db.refresh(product)
+    return product, payment_ids
 
 
 # 추첨 룰렛 구슬 배치용 — 응모 번호별 총 응모권 수

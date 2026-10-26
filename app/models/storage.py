@@ -17,5 +17,8 @@ class StorageItem(Base):
     status            = Column(Enum("ready", "requested", "shipped", name="storage_status"), nullable=False, default="ready", server_default="ready")
     address_id        = Column(Integer, ForeignKey("shipping_addresses.address_id"), nullable=True)   # 배송 신청 시 선택한 배송지
     requested_at      = Column(DateTime, nullable=True)
+    carrier           = Column(String(30), nullable=True)    # 발송 처리 때 관리자가 입력한 택배사
+    tracking_number   = Column(String(50), nullable=True)    # 송장번호
+    shipped_at        = Column(DateTime, nullable=True)
     created_at        = Column(DateTime, server_default=func.now())
     updated_at        = Column(DateTime, server_default=func.now(), onupdate=func.now())

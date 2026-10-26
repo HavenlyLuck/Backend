@@ -3,6 +3,7 @@ from typing import Optional
 
 from app.models.store import StoreProduct
 from app.crud import storage as storage_crud
+from app.crud import inventory as inventory_crud
 
 
 def create_store_product(
@@ -15,7 +16,11 @@ def create_store_product(
     price: int,
     stock: int,
     image_url: Optional[str],
+    inventory_item_id: Optional[int] = None,
 ) -> StoreProduct:
+    # 재고에서 고른 품목이면 판매 수량만큼 이 상품에 묶는다 (모자라면 InventoryError)
+    if inventory_item_id is not None:
+        inventory_crud.check_available(db, [(inventory_item_id, stock)])
     product = StoreProduct(
         admin_id=admin_id,
         product_name=product_name,
@@ -27,6 +32,9 @@ def create_store_product(
         image_url=image_url,
     )
     db.add(product)
+    db.flush()
+    if inventory_item_id is not None:
+        inventory_crud.add_link(db, inventory_item_id, "store", product.store_product_id)
     db.commit()
     db.refresh(product)
     return product

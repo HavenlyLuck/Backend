@@ -6,6 +6,7 @@ from typing import Optional
 from app.models.kuji import KujiSet, KujiPrize, KujiTicket
 from app.models.storage import StorageItem
 from app.crud import storage as storage_crud
+from app.crud import inventory as inventory_crud
 
 _rng = random.SystemRandom()
 
@@ -23,7 +24,14 @@ def create_kuji_set(
     last_one_name: Optional[str],
     last_one_image_url: Optional[str],
     last_one_cost: Optional[int],
+    last_one_inventory_item_id: Optional[int] = None,
 ) -> KujiSet:
+    # 재고에서 고른 상은 그 개수만큼, 라스트원상은 1개를 이 쿠지에 묶는다 (모자라면 InventoryError)
+    needs = [(p["inventory_item_id"], p["quantity"]) for p in prizes if p.get("inventory_item_id") is not None]
+    if last_one_name and last_one_inventory_item_id is not None:
+        needs.append((last_one_inventory_item_id, 1))
+    if needs:
+        inventory_crud.check_available(db, needs)
     total = sum(p["quantity"] for p in prizes)
     kuji = KujiSet(
         admin_id=admin_id,
@@ -56,6 +64,11 @@ def create_kuji_set(
         db.add(row)
         prize_rows.append(row)
     db.flush()
+    for p, row in zip(prizes, prize_rows):
+        if p.get("inventory_item_id") is not None:
+            inventory_crud.add_link(db, p["inventory_item_id"], "kuji_prize", row.kuji_prize_id)
+    if last_one_name and last_one_inventory_item_id is not None:
+        inventory_crud.add_link(db, last_one_inventory_item_id, "kuji_last_one", kuji.kuji_set_id)
 
     bag = [row.kuji_prize_id for row in prize_rows for _ in range(row.quantity)]
     _rng.shuffle(bag)
@@ -78,6 +91,10 @@ def get_kuji_sets(db: Session, status: Optional[str] = None) -> list[KujiSet]:
 
 def get_kuji_set(db: Session, kuji_set_id: int) -> Optional[KujiSet]:
     return db.query(KujiSet).filter(KujiSet.kuji_set_id == kuji_set_id).first()
+
+
+def get_kuji_set_for_update(db: Session, kuji_set_id: int) -> Optional[KujiSet]:
+    return db.query(KujiSet).filter(KujiSet.kuji_set_id == kuji_set_id).with_for_update().first()
 
 
 # 뽑힌 제비만 (번호, 등급)

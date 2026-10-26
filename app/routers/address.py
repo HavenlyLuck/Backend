@@ -57,3 +57,27 @@ def create_address(
         address2=(payload.address2 or "").strip() or None,
         is_default=payload.is_default,
     )
+
+
+# 기본 배송지 지정 — 기존 기본 배송지는 해제된다
+@router.patch("/{address_id}/default", response_model=AddressResponse)
+def set_default_address(
+    address_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    address = address_crud.set_default_address(db, user.user_id, address_id)
+    if not address:
+        raise HTTPException(status_code=404, detail="배송지를 찾을 수 없습니다")
+    return address
+
+
+# 배송지 삭제
+@router.delete("/{address_id}", status_code=204)
+def delete_address(
+    address_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    if not address_crud.delete_address(db, user.user_id, address_id):
+        raise HTTPException(status_code=404, detail="배송지를 찾을 수 없습니다")
