@@ -12,6 +12,7 @@ class KujiPrizeCreate(BaseModel):
     quantity: int
     cost: int = 0
     image_index: Optional[int] = None
+    inventory_item_id: Optional[int] = None   # 재고에서 고른 품목
 
 
 class KujiPrizeResponse(BaseModel):

@@ -6,10 +6,11 @@ from typing import Optional, Literal
 from app.database import get_db
 from app.core.dependencies import get_current_admin, get_current_user
 from app.models.user import User
-from app.schemas.store import STORE_CATEGORIES, StoreCategory, StoreProductResponse, StorePurchaseRequest, StorePurchaseResponse
+from app.schemas.store import STORE_CATEGORIES, StoreCategory, StoreProductResponse, StorePurchaseRequest, StorePurchaseResponse, StoreStockUpdate
 from app.services.cloudinary import upload_image
 from app.crud import store as store_crud
 from app.crud import point as point_crud
+from app.crud import inventory as inventory_crud
 
 router = APIRouter()
 
@@ -23,6 +24,7 @@ def create_store_product(
     price: int = Form(...),
     stock: int = Form(...),
     image: Optional[UploadFile] = File(None),
+    inventory_item_id: Optional[int] = Form(None),
     db: Session = Depends(get_db),
     admin: User = Depends(get_current_admin),
 ):
@@ -34,17 +36,47 @@ def create_store_product(
         raise HTTPException(status_code=400, detail="해당 상점에서 사용할 수 없는 분류입니다")
 
     image_url = upload_image(image, folder="store_products") if image else None
-    return store_crud.create_store_product(
-        db,
-        admin_id=admin.user_id,
-        product_name=product_name,
-        description=description,
-        pay_type=pay_type,
-        category=category,
-        price=price,
-        stock=stock,
-        image_url=image_url,
-    )
+    try:
+        return store_crud.create_store_product(
+            db,
+            admin_id=admin.user_id,
+            product_name=product_name,
+            description=description,
+            pay_type=pay_type,
+            category=category,
+            price=price,
+            stock=stock,
+            image_url=image_url,
+            inventory_item_id=inventory_item_id,
+        )
+    except inventory_crud.InventoryError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# 상점 판매 수량 조정 (관리자) — 줄이면 줄인 만큼 재고로 돌아가고, 늘리면 재고에서 더 가져온다 (0 = 판매 종료)
+@router.patch("/{store_product_id}", response_model=StoreProductResponse)
+def update_store_product_stock(
+    store_product_id: int,
+    payload: StoreStockUpdate,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    if payload.stock < 0:
+        raise HTTPException(status_code=400, detail="수량은 0 이상이어야 합니다")
+    product = store_crud.get_store_product_for_update(db, store_product_id)
+    if not product:
+        db.rollback()
+        raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다")
+    try:
+        inventory_crud.check_store_stock_increase(db, store_product_id, payload.stock - product.stock)
+    except inventory_crud.InventoryError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    product.stock = payload.stock
+    db.commit()
+    db.refresh(product)
+    return product
 
 
 # 상점 상품 목록 조회

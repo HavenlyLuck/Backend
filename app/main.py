@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.database import SessionLocal
 from app.crud import raffle as raffle_crud
 from app.crud import payment as payment_crud
-from app.routers import user, admin, raffle, point, store, storage, address, avatar_item, notice, kuji, payment
+from app.routers import user, admin, raffle, point, store, storage, address, avatar_item, notice, kuji, payment, inventory, finance
 
 SETTLE_INTERVAL_SECONDS = 5
 # 결제 정리(결제 후 창을 닫은 주문 지급, 카드 취소 재시도)는 포트원 API를 부르므로 더 드물게
@@ -76,6 +76,8 @@ app.include_router(raffle.router, prefix="/raffles", tags=["raffles"])
 app.include_router(point.router, prefix="/points", tags=["points"])
 app.include_router(store.router, prefix="/store-products", tags=["store"])
 app.include_router(storage.router, prefix="/storage", tags=["storage"])
+app.include_router(inventory.router, prefix="/inventory", tags=["inventory"])
+app.include_router(finance.router, prefix="/finance", tags=["finance"])
 app.include_router(address.router, prefix="/addresses", tags=["addresses"])
 app.include_router(avatar_item.router, prefix="/avatar-items", tags=["avatar-items"])
 app.include_router(notice.router, prefix="/notices", tags=["notices"])

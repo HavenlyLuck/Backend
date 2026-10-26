@@ -115,6 +115,11 @@ def _try_cancel(db: Session, payment_id: str) -> bool:
     return True
 
 
+# 다른 곳(보관함 구매 취소 등)에서 cancel_requested로 바꾼 결제를 바로 환불 요청할 때
+def try_cancel_payment(db: Session, payment_id: str) -> bool:
+    return _try_cancel(db, payment_id)
+
+
 def _request_cancel(db: Session, payment_id: str, reason: str) -> None:
     payment = _lock(db, payment_id)
     if payment and payment.status == "pending":

@@ -13,6 +13,8 @@ from app.schemas.raffle import (
 )
 from app.services.cloudinary import upload_image
 from app.crud import raffle as raffle_crud
+from app.crud import payment as payment_crud
+from app.crud import inventory as inventory_crud
 
 router = APIRouter()
 
@@ -24,6 +26,7 @@ def create_raffle_product(
     price_krw: int = Form(...),
     image: UploadFile = File(...),
     duration_days: int = Form(1),
+    inventory_item_id: Optional[int] = Form(None),
     db: Session = Depends(get_db),
     admin: User = Depends(get_current_admin),
 ):
@@ -33,15 +36,38 @@ def create_raffle_product(
         raise HTTPException(status_code=400, detail=f"응모 기간은 {', '.join(map(str, RAFFLE_DURATION_DAYS_OPTIONS))}일 중에서 선택해야 합니다")
 
     image_url = upload_image(image)
-    return raffle_crud.create_raffle_product(
-        db,
-        admin_id=admin.user_id,
-        product_name=product_name,
-        description=description,
-        price_krw=price_krw,
-        image_url=image_url,
-        duration_days=duration_days,
-    )
+    try:
+        return raffle_crud.create_raffle_product(
+            db,
+            admin_id=admin.user_id,
+            product_name=product_name,
+            description=description,
+            price_krw=price_krw,
+            image_url=image_url,
+            duration_days=duration_days,
+            inventory_item_id=inventory_item_id,
+        )
+    except inventory_crud.InventoryError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+# 관리자 응모 취소 — 매진 전에만. 응모권 결제는 전액 환불(포트원 취소, 실패하면 주기 작업이 다시 시도)
+@router.post("/{raffle_product_id}/cancel", response_model=RaffleProductResponse)
+def cancel_raffle_product(raffle_product_id: int, db: Session = Depends(get_db), admin: User = Depends(get_current_admin)):
+    try:
+        product, payment_ids = raffle_crud.cancel_raffle_by_admin(db, raffle_product_id)
+    except LookupError as e:
+        db.rollback()
+        raise HTTPException(status_code=404, detail=str(e))
+    except raffle_crud.RaffleCancelError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    for pid in payment_ids:
+        payment_crud.try_cancel_payment(db, pid)
+    product = raffle_crud.get_raffle_product(db, raffle_product_id)
+    product.sold_slots = raffle_crud.get_sold_ticket_count(db, raffle_product_id)
+    return product
 
 
 # 라플 상품 목록 조회
