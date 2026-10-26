@@ -6,7 +6,7 @@ class UserSignup(BaseModel):
     nickname: str
     email: EmailStr
     password: str
-    identity_verification_id: str     # 포트원 본인인증 ID (전화번호·인증시간은 서버가 포트원에서 직접 조회)
+    phone: str                        # 테스트 버전: 실제 본인인증 없이 번호 중복만 확인하고 저장
 
 
 class IdentityVerifyRequest(BaseModel):   # 본인인증 결과 확인 요청
@@ -48,7 +48,7 @@ class UserResponse(BaseModel):
         from_attributes = True
 
 class DuplCheckRequest(BaseModel):
-    field: Literal["login_id", "nickname", "email"]  # 이 세 가지만 허용
+    field: Literal["login_id", "nickname", "email", "phone"]  # 이 네 가지만 허용
     value: str
 
 class DuplCheckResponse(BaseModel):
