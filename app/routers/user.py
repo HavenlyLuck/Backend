@@ -1,3 +1,6 @@
+import re
+from datetime import datetime, timezone
+from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import HTTPBearer
 from jose import JWTError
@@ -54,6 +57,11 @@ def _verify_identity(identity_verification_id: str, db: Session) -> dict:
         raise HTTPException(status_code=400, detail="이미 가입된 휴대폰 번호입니다")
     return identity
 
+# 휴대폰 번호를 숫자만 남겨 저장 형식(01012345678)으로 맞춘다. 형식이 틀리면 None
+def _normalize_phone(value: str) -> Optional[str]:
+    phone = re.sub(r"\D", "", value)
+    return phone if re.fullmatch(r"01\d{8,9}", phone) else None
+
 # 본인인증 결과 확인 (가입 폼에 인증된 번호를 보여주기 위함)
 @router.post("/identity-verification", response_model=IdentityVerifyResponse)
 def verify_identity(body: IdentityVerifyRequest, db: Session = Depends(get_db)):
@@ -70,17 +78,20 @@ def signup(body: UserSignup, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="이미 사용중인 닉네임입니다")
     if db.query(User).filter(User.email == body.email).first():
         raise HTTPException(status_code=400, detail="이미 사용중인 이메일입니다")
-    # 전화번호는 클라이언트 값을 믿지 않고 포트원에서 인증된 번호를 쓴다
-    identity = _verify_identity(body.identity_verification_id, db)
+    # 테스트 버전: 포트원 본인인증 없이 번호 형식·중복만 확인한다
+    phone = _normalize_phone(body.phone)
+    if not phone:
+        raise HTTPException(status_code=400, detail="올바른 휴대폰 번호를 입력해주세요")
+    if db.query(User).filter(User.phone == phone).first():
+        raise HTTPException(status_code=400, detail="이미 가입된 휴대폰 번호입니다")
 
     user = User(
         login_id=body.login_id,
         nickname=body.nickname,
         email=body.email,
         password=hash_password(body.password),
-        name=identity["name"],
-        phone=identity["phone"],
-        phone_verified_at=identity["verified_at"],
+        phone=phone,
+        phone_verified_at=datetime.now(timezone.utc).replace(tzinfo=None),
     )
     db.add(user)
     db.commit()
@@ -151,6 +162,12 @@ def dupl_check(body: DuplCheckRequest, db: Session = Depends(get_db)):
     elif body.field == "email":
         exists = db.query(User).filter(User.email == body.value).first()
         label = "이메일"
+    elif body.field == "phone":
+        phone = _normalize_phone(body.value)
+        if not phone:
+            return DuplCheckResponse(available=False, message="올바른 휴대폰 번호를 입력해주세요")
+        exists = db.query(User).filter(User.phone == phone).first()
+        label = "휴대폰 번호"
 
     if exists:
         return DuplCheckResponse(available=False, message=f"이미 사용중인 {label}입니다")
