@@ -17,6 +17,11 @@ class IdentityVerifyResponse(BaseModel):  # 본인인증 결과 (가입 폼에 �
     phone: str
 
 
+class PasswordChangeRequest(BaseModel):   # 비밀번호 변경 요청 (마이페이지 설정)
+    current_password: str
+    new_password: str
+
+
 class UserLogin(BaseModel):        # 로그인 요청
     login_id: str
     password: str
