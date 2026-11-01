@@ -166,6 +166,7 @@ def fulfill_kuji_draw(db: Session, kuji_set_id: int, user_id: int, ticket_number
     got_last_one = kuji.remaining_tickets == 0
     if got_last_one:
         kuji.status = "sold_out"
+        kuji.sold_out_at = now
         if kuji.last_one_name:
             kuji.last_one_user_id = user_id
             storage_crud.add_kuji_win(

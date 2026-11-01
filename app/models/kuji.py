@@ -21,6 +21,7 @@ class KujiSet(Base):
     last_one_image_url = Column(String(500), nullable=True)
     last_one_cost      = Column(Integer, nullable=True)
     last_one_user_id   = Column(Integer, ForeignKey("users.user_id"), nullable=True)
+    sold_out_at        = Column(DateTime, nullable=True)   # 마지막 제비가 뽑힌 시각 — 이 시각 + 하루 뒤 목록에서 내려간다
     board_version      = Column(Integer, nullable=False, default=1, server_default="1")  # 제비가 뽑힐 때마다 +1 — 제비판 조회에서 바뀐 게 없으면 빈 응답
     created_at         = Column(DateTime, server_default=func.now())
     updated_at         = Column(DateTime, server_default=func.now(), onupdate=func.now())
