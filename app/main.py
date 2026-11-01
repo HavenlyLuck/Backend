@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.database import SessionLocal
 from app.crud import raffle as raffle_crud
 from app.crud import payment as payment_crud
-from app.routers import user, admin, raffle, point, store, storage, address, avatar_item, notice, kuji, payment, inventory, finance
+from app.routers import user, admin, raffle, point, store, storage, address, avatar_item, notice, kuji, payment, inventory, finance, review, inquiry
 
 SETTLE_INTERVAL_SECONDS = 5
 # 결제 정리(결제 후 창을 닫은 주문 지급, 카드 취소 재시도)는 포트원 API를 부르므로 더 드물게
@@ -88,6 +88,8 @@ app.include_router(avatar_item.router, prefix="/avatar-items", tags=["avatar-ite
 app.include_router(notice.router, prefix="/notices", tags=["notices"])
 app.include_router(kuji.router, prefix="/kuji", tags=["kuji"])
 app.include_router(payment.router, prefix="/payments", tags=["payments"])
+app.include_router(review.router, prefix="/reviews", tags=["reviews"])
+app.include_router(inquiry.router, prefix="/inquiries", tags=["inquiries"])
 
 @app.get("/server_ok")
 def health_check():

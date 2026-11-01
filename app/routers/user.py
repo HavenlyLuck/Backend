@@ -11,7 +11,7 @@ from app.models.user import User
 from app.schemas.user import (
     UserSignup, UserLogin, UserResponse, TokenResponse,
     RefreshRequest, RefreshResponse, DuplCheckRequest, DuplCheckResponse,
-    IdentityVerifyRequest, IdentityVerifyResponse,
+    IdentityVerifyRequest, IdentityVerifyResponse, PasswordChangeRequest,
 )
 from app.core.security import hash_password, verify_password, create_token, decode_token
 from app.core.dependencies import get_current_user
@@ -46,6 +46,21 @@ def update_my_avatar(body: AvatarConfig, user: User = Depends(get_current_user),
     db.commit()
     db.refresh(user)
     return user
+
+# 비밀번호 규칙 — 회원가입 화면(Frontend/app/signup)과 같다: 영문 대·소문자, 숫자, 특수문자 포함 8~20자
+PASSWORD_PATTERN = re.compile(r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9\s]).{8,20}$")
+
+# 내 비밀번호 변경 — 현재 비밀번호가 맞아야 바꿔 준다
+@router.put("/me/password", status_code=204)
+def change_my_password(body: PasswordChangeRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not verify_password(body.current_password, user.password):
+        raise HTTPException(status_code=400, detail="현재 비밀번호가 올바르지 않습니다")
+    if not PASSWORD_PATTERN.match(body.new_password):
+        raise HTTPException(status_code=400, detail="비밀번호는 영문 대문자, 소문자, 숫자, 특수문자를 모두 포함한 8~20자여야 합니다")
+    if verify_password(body.new_password, user.password):
+        raise HTTPException(status_code=400, detail="현재 비밀번호와 다른 비밀번호를 입력해주세요")
+    user.password = hash_password(body.new_password)
+    db.commit()
 
 # 포트원 본인인증 결과를 조회해서, 인증이 안 됐거나 이미 가입된 번호면 400
 def _verify_identity(identity_verification_id: str, db: Session) -> dict:
