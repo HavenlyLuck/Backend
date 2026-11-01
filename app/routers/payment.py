@@ -119,6 +119,6 @@ def complete_payment(payment_id: str, db: Session = Depends(get_db), user: User 
         response.kuji_draw = build_draw_response(db, kuji, drawn, [], got_last_one, payment.amount)
     else:
         item = db.query(StorageItem).filter(StorageItem.payment_id == payment_id).first()
-        product = store_crud.get_store_product(db, payment.target_id)
+        product = store_crud.get_store_product(db, payment.target_id, include_deleted=True)
         response.store_purchase = store_purchase_response(product, item)
     return response

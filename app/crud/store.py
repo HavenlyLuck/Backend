@@ -41,14 +41,18 @@ def create_store_product(
 
 
 def get_store_products(db: Session, pay_type: Optional[str] = None) -> list[StoreProduct]:
-    query = db.query(StoreProduct)
+    query = db.query(StoreProduct).filter(StoreProduct.deleted_at.is_(None))
     if pay_type:
         query = query.filter(StoreProduct.pay_type == pay_type)
     return query.order_by(StoreProduct.created_at.desc()).all()
 
 
-def get_store_product(db: Session, store_product_id: int) -> Optional[StoreProduct]:
-    return db.query(StoreProduct).filter(StoreProduct.store_product_id == store_product_id).first()
+# include_deleted=True: 이미 결제된 주문의 응답을 다시 만들 때처럼, 삭제된 상품도 찾아야 하는 경우
+def get_store_product(db: Session, store_product_id: int, include_deleted: bool = False) -> Optional[StoreProduct]:
+    query = db.query(StoreProduct).filter(StoreProduct.store_product_id == store_product_id)
+    if not include_deleted:
+        query = query.filter(StoreProduct.deleted_at.is_(None))
+    return query.first()
 
 
 # 재고 차감 시 동시 구매로 재고가 음수가 되지 않도록 행 잠금으로 조회

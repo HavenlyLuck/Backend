@@ -2,6 +2,7 @@
 from fastapi import APIRouter, Depends, Form, File, UploadFile, HTTPException, Query
 from sqlalchemy.orm import Session
 from typing import Optional, Literal
+from datetime import datetime, timezone
 
 from app.database import get_db
 from app.core.dependencies import get_current_admin, get_current_user
@@ -77,6 +78,24 @@ def update_store_product_stock(
     db.commit()
     db.refresh(product)
     return product
+
+
+# 품절 상품 삭제 (관리자) — 구매 내역(보관함)이 상품을 참조하므로 행은 남기고 목록·상세에서 숨긴다
+@router.delete("/{store_product_id}", status_code=204)
+def delete_store_product(
+    store_product_id: int,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    product = store_crud.get_store_product_for_update(db, store_product_id)
+    if not product or product.deleted_at is not None:
+        db.rollback()
+        raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다")
+    if product.stock > 0:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="품절된 상품만 삭제할 수 있습니다. 먼저 판매 종료해 주세요")
+    product.deleted_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    db.commit()
 
 
 # 상점 상품 목록 조회

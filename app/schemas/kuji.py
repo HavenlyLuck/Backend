@@ -45,6 +45,7 @@ class KujiSetResponse(BaseModel):
     last_one_name: Optional[str] = None
     last_one_image_url: Optional[str] = None
     created_at: datetime
+    sold_out_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
