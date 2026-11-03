@@ -471,7 +471,9 @@ def cancel_my_raffle_entries(
         user = db.query(User).filter(User.user_id == user_id).first()
         user.funding_banned_until = _utcnow() + timedelta(days=FUNDING_CANCEL_BAN_DAYS)
 
-    # 상점에서 온 응모(모금 중 · 전환 후)에 아무도 남지 않으면 바로 닫고 묶어 둔 재고를 상점으로 돌려준다
+    # 상점에서 온 응모(모금 중 · 전환 후)에 아무도 남지 않으면 바로 닫고 묶어 둔 재고를 상점으로 돌려준다.
+    # 세션이 autoflush=False라서, 위에서 지우고 줄인 응모를 먼저 DB에 반영해야 남은 장수가 맞게 나온다
+    db.flush()
     if product.funding_store_product_id is not None and get_sold_ticket_count(db, raffle_product_id) == 0:
         _cancel_raffle(db, product, "응모 참여자가 모두 취소했습니다")
 
@@ -601,14 +603,27 @@ def get_active_funding(db: Session, store_product_id: int, for_update: bool = Fa
     return query.first()
 
 
-# 결제 상점 상품 중 전환 모금을 열 수 있는 상품인지 (진행 중인 모금이 없을 때 새로 열 수 있는지)
-def can_open_funding(store_product: StoreProduct) -> bool:
-    return (
-        store_product.pay_type == "cash"
-        and store_product.deleted_at is None
-        and store_product.price >= FUNDING_MIN_PRICE
-        and store_product.stock >= 1
-    )
+# 새 전환 모금을 열 수 없는 이유 (열 수 있으면 None) — 진행 중인 모금이 없을 때 확인한다
+def funding_blocked_reason(db: Session, store_product: StoreProduct) -> Optional[str]:
+    if store_product.pay_type != "cash" or store_product.deleted_at is not None:
+        return "이 상품은 응모로 전환할 수 없어요"
+    if store_product.price < FUNDING_MIN_PRICE:
+        return f"{FUNDING_MIN_PRICE:,}원 이상인 상품만 응모로 전환할 수 있어요"
+    if store_product.stock < 1:
+        return "재고가 없어 응모로 전환할 수 없어요"
+    # 응모 상품과 중복 — 이 상품에서 전환된 응모가 아직 진행 중(추첨 전)이거나,
+    # 같은 이름의 응모 상품이 진행 중이면 전환하지 않는다
+    if db.query(RaffleProduct.raffle_product_id).filter(
+        RaffleProduct.funding_store_product_id == store_product.store_product_id,
+        RaffleProduct.status == "open",
+    ).first():
+        return "이 상품으로 전환된 응모가 아직 진행 중이에요"
+    if db.query(RaffleProduct.raffle_product_id).filter(
+        func.trim(RaffleProduct.product_name) == store_product.product_name.strip(),
+        RaffleProduct.status.in_(["funding", "open"]),
+    ).first():
+        return "같은 상품이 이미 응모 중이라 전환할 수 없어요"
+    return None
 
 
 # 전환 후 모금 응모권을 취소한 사람은 정해진 시각까지 전환 응모권을 살 수 없다
@@ -633,8 +648,9 @@ def check_can_fund(db: Session, store_product: Optional[StoreProduct], ticket_co
         return
     if ticket_count <= 0:
         raise RaffleEntryError("응모권 수는 1장 이상이어야 합니다")
-    if not can_open_funding(store_product):
-        raise RaffleEntryError("지금은 이 상품을 응모로 전환할 수 없어요")
+    reason = funding_blocked_reason(db, store_product)
+    if reason:
+        raise RaffleEntryError(reason)
     if ticket_count > store_product.price // RAFFLE_TICKET_PRICE:
         raise RaffleEntryError("남은 응모권이 부족합니다")
 
@@ -656,8 +672,9 @@ def fulfill_store_funding(
     check_funding_ban(db.query(User).filter(User.user_id == user_id).first())
     funding = get_active_funding(db, store_product_id, for_update=True)
     if funding is None:
-        if not can_open_funding(store_product):
-            raise RaffleEntryError("재고가 없어 응모로 전환할 수 없어요")
+        reason = funding_blocked_reason(db, store_product)
+        if reason:
+            raise RaffleEntryError(reason)
         now = _utcnow()
         store_product.stock -= 1
         funding = RaffleProduct(
@@ -691,8 +708,10 @@ def _funding_status(db: Session, store_product: StoreProduct) -> dict:
     funding = get_active_funding(db, store_product.store_product_id)
     if funding is None:
         total = store_product.price // RAFFLE_TICKET_PRICE
+        reason = funding_blocked_reason(db, store_product)
         return {
-            "available": can_open_funding(store_product),
+            "available": reason is None,
+            "unavailable_reason": reason,
             "raffle_product_id": None,
             "sold_slots": 0,
             "threshold": funding_threshold(total),
@@ -703,6 +722,7 @@ def _funding_status(db: Session, store_product: StoreProduct) -> dict:
         }
     return {
         "available": funding.ends_at > _utcnow(),
+        "unavailable_reason": None if funding.ends_at > _utcnow() else "모금 기간이 끝났어요",
         "raffle_product_id": funding.raffle_product_id,
         "sold_slots": get_sold_ticket_count(db, funding.raffle_product_id),
         "threshold": funding_threshold(funding.total_slots),

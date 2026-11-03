@@ -1,7 +1,9 @@
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from typing import Optional
 
 from app.models.store import StoreProduct
+from app.models.raffle import RaffleProduct
 from app.crud import storage as storage_crud
 from app.crud import inventory as inventory_crud
 
@@ -40,10 +42,21 @@ def create_store_product(
     return product
 
 
-def get_store_products(db: Session, pay_type: Optional[str] = None) -> list[StoreProduct]:
+# include_sold_out=False면 품절 상품은 뺀다 — 단 응모 전환 모금이 진행 중인 상품(재고를 모금에 묶어 0개)은 보여준다
+def get_store_products(db: Session, pay_type: Optional[str] = None, include_sold_out: bool = True) -> list[StoreProduct]:
     query = db.query(StoreProduct).filter(StoreProduct.deleted_at.is_(None))
     if pay_type:
         query = query.filter(StoreProduct.pay_type == pay_type)
+    if not include_sold_out:
+        funding = (
+            db.query(RaffleProduct.raffle_product_id)
+            .filter(
+                RaffleProduct.funding_store_product_id == StoreProduct.store_product_id,
+                RaffleProduct.status == "funding",
+            )
+            .exists()
+        )
+        query = query.filter(or_(StoreProduct.stock > 0, funding))
     return query.order_by(StoreProduct.created_at.desc()).all()
 
 
