@@ -40,5 +40,15 @@ KUJI_TICKET_PRICE = 10000
 KUJI_MAX_TICKETS = 1000
 # 한 번에 뽑을 수 있는 최대 제비 수
 KUJI_MAX_DRAW = 10
+# 상점 → 응모 전환 모금: 응모권(가격 ÷ 응모권 가격)의 1/3이 팔리면 응모 상품으로 전환된다.
+# 첫 응모권이 팔린 뒤 이 기간 안에 못 모으면 전부 환불하고, 묶어 둔 재고 1개는 상점으로 돌아간다
+FUNDING_THRESHOLD_DIVISOR = 3
+FUNDING_DURATION_DAYS = 3
+# 전환된 응모 상품의 응모 기간 (전환 시점부터)
+FUNDING_RAFFLE_DURATION_DAYS = 1
+# 응모권 1/3이 최소 1장 이상 되도록 — 이 가격(원) 이상인 상품만 전환 모금을 열 수 있다
+FUNDING_MIN_PRICE = 3000
+# 응모 상품으로 전환된 뒤 모금 때 산 응모권을 취소하면, 이 기간 동안 전환 응모권을 살 수 없다
+FUNDING_CANCEL_BAN_DAYS = 3
 # 응모권이 매진된 뒤 자동 추첨까지 기다리는 시간 (이 동안 응모자들이 추첨 화면을 준비한다)
 RAFFLE_DRAW_DELAY_SECONDS = 1 * 60

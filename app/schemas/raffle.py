@@ -11,7 +11,7 @@ class RaffleProductResponse(BaseModel):
     total_slots: int
     sold_slots: int = 0
     image_url: Optional[str] = None
-    status: Literal["open", "completed", "cancelled"]
+    status: Literal["funding", "open", "completed", "cancelled"]
     starts_at: datetime
     ends_at: datetime
     sold_out_at: Optional[datetime] = None
@@ -19,6 +19,8 @@ class RaffleProductResponse(BaseModel):
     winner_entry_number: Optional[int] = None
     winner_user_id: Optional[int] = None
     draw_video_url: Optional[str] = None
+    funding_store_product_id: Optional[int] = None   # 상점 상품에서 전환 모금으로 만들어진 응모면 그 상점 상품
+    converted_at: Optional[datetime] = None          # 응모 상품으로 전환된 시각
 
     class Config:
         from_attributes = True
@@ -78,12 +80,14 @@ class MyRaffleEntryResponse(BaseModel):
     product_name: str
     image_url: Optional[str] = None
     price_krw: int
-    status: Literal["open", "completed", "cancelled"]
+    status: Literal["funding", "open", "completed", "cancelled"]
     ends_at: datetime
     sold_out_at: Optional[datetime] = None
     winner_entry_number: Optional[int] = None
     draw_video_url: Optional[str] = None
     result_checked_at: Optional[datetime] = None   # 당첨결과를 확인한 시각 (없으면 아직 안 봄)
+    funding_store_product_id: Optional[int] = None  # 응모 전환 모금 중이면 그 상점 상품 (상세는 상점 페이지에서)
+    bought_in_funding: bool = False   # 전환 모금 때 산 응모권 — 응모 상품으로 전환된 뒤에는 취소할 수 없다
 
     class Config:
         from_attributes = True

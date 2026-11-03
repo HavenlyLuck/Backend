@@ -5,7 +5,11 @@ from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-from app.core.config import RAFFLE_TICKET_PRICE, RAFFLE_DRAW_DELAY_SECONDS, RAFFLE_DURATION_OVERRIDE_MINUTES
+from app.core.config import (
+    RAFFLE_TICKET_PRICE, RAFFLE_DRAW_DELAY_SECONDS, RAFFLE_DURATION_OVERRIDE_MINUTES,
+    FUNDING_THRESHOLD_DIVISOR, FUNDING_DURATION_DAYS, FUNDING_RAFFLE_DURATION_DAYS, FUNDING_MIN_PRICE,
+    FUNDING_CANCEL_BAN_DAYS,
+)
 from app.models.raffle import RaffleProduct, RaffleEntry
 from app.models.payment import Payment
 from app.models.user import User
@@ -15,6 +19,7 @@ from app.crud import inventory as inventory_crud
 from app.services import portone
 from app.crud import referral as referral_crud
 from app.models.free_ticket import FreeTicket
+from app.models.store import StoreProduct
 
 
 def create_raffle_product(
@@ -60,6 +65,9 @@ def get_raffle_products(db: Session, status: Optional[str] = None) -> list[Raffl
     query = db.query(RaffleProduct)
     if status:
         query = query.filter(RaffleProduct.status == status)
+    else:
+        # 전환 모금 중인 상품은 상점 상세에서만 보인다 (응모 목록에는 전환된 뒤에 나온다)
+        query = query.filter(RaffleProduct.status != "funding")
     return query.order_by(RaffleProduct.starts_at.desc()).all()
 
 
@@ -130,7 +138,7 @@ def check_can_enter(db: Session, product: Optional[RaffleProduct], ticket_count:
         raise RaffleEntryError("응모권 수는 1장 이상이어야 합니다")
     if not product:
         raise RaffleEntryError("상품을 찾을 수 없습니다")
-    if product.status != "open" or product.ends_at <= _utcnow():
+    if product.status not in ("open", "funding") or product.ends_at <= _utcnow():
         raise RaffleEntryError("마감된 응모입니다")
     sold = get_sold_ticket_count(db, product.raffle_product_id)
     if sold + ticket_count > product.total_slots:
@@ -162,6 +170,9 @@ def fulfill_raffle_entry(
         entry_number=entry_number,
         payment_id=payment_id,
     )
+    # 전환 모금 중이면 이번 구매로 1/3을 넘었는지 확인해 응모 상품으로 전환한다
+    if product.status == "funding" and sold + ticket_count >= funding_threshold(product.total_slots):
+        _convert_funding(product)
     # 이번 구매로 매진됐으면 매진 시각을 남긴다 — 이 시각부터 RAFFLE_DRAW_DELAY_SECONDS 뒤에 자동 추첨
     if sold + ticket_count >= product.total_slots:
         product.sold_out_at = _utcnow()
@@ -174,6 +185,8 @@ def fulfill_raffle_entry(
 def enter_with_free_tickets(db: Session, raffle_product_id: int, user_id: int, count: int) -> RaffleEntry:
     product = get_raffle_product_for_update(db, raffle_product_id)
     check_can_enter(db, product, count)
+    if product.status == "funding":
+        raise RaffleEntryError("응모 전환 모금에는 무료 응모권을 쓸 수 없어요")
     tickets = referral_crud.lock_unused_tickets(db, user_id, count)
     if len(tickets) < count:
         raise RaffleEntryError(f"보관함에 쓸 수 있는 응모권이 {len(tickets)}장뿐이에요")
@@ -273,7 +286,7 @@ def cancel_expired_raffles(db: Session) -> None:
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     expired = (
         db.query(RaffleProduct)
-        .filter(RaffleProduct.status == "open", RaffleProduct.ends_at <= now)
+        .filter(RaffleProduct.status.in_(["open", "funding"]), RaffleProduct.ends_at <= now)
         .with_for_update()
         .all()
     )
@@ -286,13 +299,27 @@ def cancel_expired_raffles(db: Session) -> None:
         # 매진된 상품은 시간이 지나도 추첨 대기 상태로 남는다
         if sold_map.get(product.raffle_product_id, 0) >= product.total_slots:
             continue
-        _cancel_raffle(db, product, "응모 기간 안에 매진되지 않아 응모가 취소되었습니다")
+        reason = (
+            "응모 전환 모금이 기간 안에 모이지 않아 취소되었습니다" if product.status == "funding"
+            else "응모 기간 안에 매진되지 않아 응모가 취소되었습니다"
+        )
+        _cancel_raffle(db, product, reason)
     db.commit()
 
 
 # 응모를 취소하고 응모권 결제를 카드 취소 대기로 돌린다 (commit은 호출한 쪽에서). 반환: 환불할 payment_id들
 def _cancel_raffle(db: Session, product: RaffleProduct, reason: str) -> list[str]:
     product.status = "cancelled"
+    # 상점 상품에서 전환된 응모면 묶어 두었던 재고 1개를 상점으로 돌려준다
+    if product.funding_store_product_id is not None:
+        store_product = (
+            db.query(StoreProduct)
+            .filter(StoreProduct.store_product_id == product.funding_store_product_id)
+            .with_for_update()
+            .first()
+        )
+        if store_product:
+            store_product.stock += 1
     # 무료 응모권으로 응모한 것은 보관함으로 돌려준다
     entry_ids = [eid for (eid,) in db.query(RaffleEntry.entry_id).filter(RaffleEntry.raffle_product_id == product.raffle_product_id)]
     if entry_ids:
@@ -345,7 +372,7 @@ def cancel_my_raffle_entries(
     product = get_raffle_product_for_update(db, raffle_product_id)
     if not product:
         raise LookupError("상품을 찾을 수 없습니다")
-    if product.status != "open" or product.ends_at <= _utcnow():
+    if product.status not in ("open", "funding") or product.ends_at <= _utcnow():
         raise RaffleCancelError("진행 중인 응모만 취소할 수 있어요")
     if product.sold_out_at is not None or get_sold_ticket_count(db, raffle_product_id) >= product.total_slots:
         raise RaffleCancelError("매진된 응모는 취소할 수 없어요 (곧 추첨돼요)")
@@ -363,6 +390,21 @@ def cancel_my_raffle_entries(
         ticket_count = total
     if not 1 <= ticket_count <= total:
         raise RaffleCancelError(f"1장부터 {total}장까지 취소할 수 있어요")
+    # 상점에서 응모 상품으로 전환된 뒤 모금 때 산 응모권까지 취소하면 — 모금 응모권은 전부 함께 취소하고,
+    # 그 사람은 FUNDING_CANCEL_BAN_DAYS 동안 전환 응모권을 살 수 없다.
+    # 최근에 산 것부터 취소하므로 전환 후에 산 장수(after_total)까지는 자유롭게, 그 이상이면 전부만 가능하다
+    ban = False
+    if product.funding_store_product_id is not None and product.status == "open":
+        funding_ids = funding_payment_ids(db, [e.payment_id for e in entries if e.payment_id])
+        funding_total = sum(e.ticket_count for e in entries if e.payment_id in funding_ids)
+        after_total = total - funding_total
+        if funding_total and ticket_count > after_total:
+            if ticket_count != total:
+                raise RaffleCancelError(
+                    f"전환 전에 산 응모권은 전부 함께 취소해야 해요 ({after_total}장 이하 또는 {total}장 전부)"
+                    if after_total else f"전환 전에 산 응모권은 {total}장 전부 함께 취소해야 해요"
+                )
+            ban = True
 
     payment_ids = [e.payment_id for e in entries if e.payment_id]
     payments = {
@@ -424,6 +466,14 @@ def cancel_my_raffle_entries(
         # 결제 금액·장수를 남은 만큼으로 줄인다 (정산은 이 금액으로 계산된다)
         payment.amount -= refund
         payment.quantity -= refund // product.ticket_price
+
+    if ban:
+        user = db.query(User).filter(User.user_id == user_id).first()
+        user.funding_banned_until = _utcnow() + timedelta(days=FUNDING_CANCEL_BAN_DAYS)
+
+    # 상점에서 온 응모(모금 중 · 전환 후)에 아무도 남지 않으면 바로 닫고 묶어 둔 재고를 상점으로 돌려준다
+    if product.funding_store_product_id is not None and get_sold_ticket_count(db, raffle_product_id) == 0:
+        _cancel_raffle(db, product, "응모 참여자가 모두 취소했습니다")
 
     db.commit()
     return ticket_count, total - ticket_count, full_cancel_ids, returned
@@ -502,12 +552,165 @@ def get_user_raffle_entries_all(db: Session, user_id: int) -> list[RaffleEntry]:
         entry.sold_out_at = product.sold_out_at
         entry.winner_entry_number = product.winner_entry_number
         entry.draw_video_url = product.draw_video_url
+        entry.funding_store_product_id = product.funding_store_product_id
         entries.append(entry)
+    # 전환 모금 때 산 응모권 표시 — 응모 상품으로 전환된 뒤에는 이 응모권을 취소할 수 없다
+    locked = funding_payment_ids(db, [e.payment_id for e in entries if e.payment_id])
+    for entry in entries:
+        entry.bought_in_funding = entry.payment_id in locked
     return entries
+
+
+# 이 결제들 중 상점 응모 전환 모금(store_funding)으로 산 응모권의 결제
+def funding_payment_ids(db: Session, payment_ids: list[str]) -> set[str]:
+    if not payment_ids:
+        return set()
+    return {
+        pid for (pid,) in db.query(Payment.payment_id)
+        .filter(Payment.payment_id.in_(payment_ids), Payment.order_type == "store_funding")
+    }
 
 
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+# ── 상점 → 응모 전환 모금 ──
+
+# 응모 상품으로 전환되는 데 필요한 응모권 수 (전체의 1/3, 올림)
+def funding_threshold(total_slots: int) -> int:
+    return -(-total_slots // FUNDING_THRESHOLD_DIVISOR)
+
+
+def _convert_funding(product: RaffleProduct) -> None:
+    now = _utcnow()
+    product.status = "open"
+    product.converted_at = now
+    product.starts_at = now
+    product.ends_at = now + timedelta(days=FUNDING_RAFFLE_DURATION_DAYS)
+
+
+# 이 상점 상품의 진행 중인 전환 모금 (없으면 None)
+def get_active_funding(db: Session, store_product_id: int, for_update: bool = False) -> Optional[RaffleProduct]:
+    query = db.query(RaffleProduct).filter(
+        RaffleProduct.funding_store_product_id == store_product_id,
+        RaffleProduct.status == "funding",
+    )
+    if for_update:
+        query = query.with_for_update()
+    return query.first()
+
+
+# 결제 상점 상품 중 전환 모금을 열 수 있는 상품인지 (진행 중인 모금이 없을 때 새로 열 수 있는지)
+def can_open_funding(store_product: StoreProduct) -> bool:
+    return (
+        store_product.pay_type == "cash"
+        and store_product.deleted_at is None
+        and store_product.price >= FUNDING_MIN_PRICE
+        and store_product.stock >= 1
+    )
+
+
+# 전환 후 모금 응모권을 취소한 사람은 정해진 시각까지 전환 응모권을 살 수 없다
+def check_funding_ban(user: User) -> None:
+    if user.funding_banned_until and user.funding_banned_until > _utcnow():
+        until = user.funding_banned_until + timedelta(hours=9)   # 한국 시간으로 안내
+        raise RaffleEntryError(
+            f"응모 전환 후 응모권을 취소해서 {until.month}월 {until.day}일 {until:%H:%M}까지 전환 응모권을 살 수 없어요"
+        )
+
+
+# 결제 전 확인 — 진행 중인 모금이 있으면 그 모금에, 없으면 새 모금을 열 수 있는지 본다
+def check_can_fund(db: Session, store_product: Optional[StoreProduct], ticket_count: int, user: User) -> None:
+    check_funding_ban(user)
+    if not store_product or store_product.deleted_at is not None:
+        raise RaffleEntryError("상품을 찾을 수 없습니다")
+    if store_product.pay_type != "cash":
+        raise RaffleEntryError("쌀포인트 상점 상품은 응모로 전환할 수 없어요")
+    funding = get_active_funding(db, store_product.store_product_id)
+    if funding:
+        check_can_enter(db, funding, ticket_count)
+        return
+    if ticket_count <= 0:
+        raise RaffleEntryError("응모권 수는 1장 이상이어야 합니다")
+    if not can_open_funding(store_product):
+        raise RaffleEntryError("지금은 이 상품을 응모로 전환할 수 없어요")
+    if ticket_count > store_product.price // RAFFLE_TICKET_PRICE:
+        raise RaffleEntryError("남은 응모권이 부족합니다")
+
+
+# 결제가 확인된 뒤 — 진행 중인 모금에 응모권을 발급한다. 모금이 없으면 상점 재고 1개를 묶어 새 모금을 연다
+# (commit은 호출한 쪽에서). 발급할 수 없으면 RaffleEntryError
+def fulfill_store_funding(
+    db: Session, store_product_id: int, user_id: int, ticket_count: int, amount_paid: int, payment_id: str,
+) -> RaffleEntry:
+    # 상점 상품 행을 먼저 잠가서, 같은 시각에 두 모금이 열리거나 재고가 겹쳐 나가지 않게 한다
+    store_product = (
+        db.query(StoreProduct)
+        .filter(StoreProduct.store_product_id == store_product_id)
+        .with_for_update()
+        .first()
+    )
+    if not store_product or store_product.deleted_at is not None:
+        raise RaffleEntryError("상품을 찾을 수 없습니다")
+    check_funding_ban(db.query(User).filter(User.user_id == user_id).first())
+    funding = get_active_funding(db, store_product_id, for_update=True)
+    if funding is None:
+        if not can_open_funding(store_product):
+            raise RaffleEntryError("재고가 없어 응모로 전환할 수 없어요")
+        now = _utcnow()
+        store_product.stock -= 1
+        funding = RaffleProduct(
+            admin_id=store_product.admin_id,
+            product_name=store_product.product_name,
+            description=store_product.description,
+            price_krw=store_product.price,
+            ticket_price=RAFFLE_TICKET_PRICE,
+            total_slots=store_product.price // RAFFLE_TICKET_PRICE,
+            image_url=store_product.image_url,
+            status="funding",
+            starts_at=now,
+            ends_at=now + timedelta(days=FUNDING_DURATION_DAYS),
+            funding_store_product_id=store_product_id,
+        )
+        db.add(funding)
+        db.flush()
+    return fulfill_raffle_entry(db, funding.raffle_product_id, user_id, ticket_count, amount_paid, payment_id)
+
+
+# 상점 상세에 보여 줄 전환 모금 현황 — 진행 중인 모금이 없으면 열 수 있는지만 알려 준다
+def get_funding_status(db: Session, store_product: StoreProduct, viewer: Optional[User] = None) -> dict:
+    banned_until = (
+        viewer.funding_banned_until
+        if viewer and viewer.funding_banned_until and viewer.funding_banned_until > _utcnow() else None
+    )
+    return {**_funding_status(db, store_product), "banned_until": banned_until}
+
+
+def _funding_status(db: Session, store_product: StoreProduct) -> dict:
+    funding = get_active_funding(db, store_product.store_product_id)
+    if funding is None:
+        total = store_product.price // RAFFLE_TICKET_PRICE
+        return {
+            "available": can_open_funding(store_product),
+            "raffle_product_id": None,
+            "sold_slots": 0,
+            "threshold": funding_threshold(total),
+            "total_slots": total,
+            "ticket_price": RAFFLE_TICKET_PRICE,
+            "ends_at": None,
+            "duration_days": FUNDING_DURATION_DAYS,
+        }
+    return {
+        "available": funding.ends_at > _utcnow(),
+        "raffle_product_id": funding.raffle_product_id,
+        "sold_slots": get_sold_ticket_count(db, funding.raffle_product_id),
+        "threshold": funding_threshold(funding.total_slots),
+        "total_slots": funding.total_slots,
+        "ticket_price": funding.ticket_price,
+        "ends_at": funding.ends_at,
+        "duration_days": FUNDING_DURATION_DAYS,
+    }
 
 
 # 당첨결과 확인 기록 — 이 상품에 대한 내 응모 전부에 확인 시각을 남긴다 (어느 기기에서 봐도 다시 뜨지 않게).

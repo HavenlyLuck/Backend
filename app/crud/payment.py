@@ -84,6 +84,10 @@ def _fulfill(db: Session, payment: Payment) -> list[int]:
             raffle_crud.fulfill_raffle_entry(
                 db, payment.target_id, payment.user_id, payment.quantity, payment.amount, payment.payment_id,
             )
+        elif payment.order_type == "store_funding":
+            raffle_crud.fulfill_store_funding(
+                db, payment.target_id, payment.user_id, payment.quantity, payment.amount, payment.payment_id,
+            )
         elif payment.order_type == "kuji_draw":
             _, _, conflicts, _ = kuji_crud.fulfill_kuji_draw(
                 db, payment.target_id, payment.user_id, list(payment.ticket_numbers or []), payment.amount, payment.payment_id,
@@ -260,6 +264,7 @@ def get_my_payments(db: Session, user_id: int) -> list[dict]:
         "raffle_entry": lookup(RaffleProduct, RaffleProduct.raffle_product_id, RaffleProduct.product_name, ids_of("raffle_entry")),
         "kuji_draw": lookup(KujiSet, KujiSet.kuji_set_id, KujiSet.title, ids_of("kuji_draw")),
         "store_purchase": lookup(StoreProduct, StoreProduct.store_product_id, StoreProduct.product_name, ids_of("store_purchase")),
+        "store_funding": lookup(StoreProduct, StoreProduct.store_product_id, StoreProduct.product_name, ids_of("store_funding")),
     }
     result = []
     for p in payments:

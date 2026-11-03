@@ -5,13 +5,17 @@ from typing import Optional, Literal
 from datetime import datetime, timezone
 
 from app.database import get_db
-from app.core.dependencies import get_current_admin, get_current_user
+from app.core.dependencies import get_current_admin, get_current_user, get_optional_user
 from app.models.user import User
-from app.schemas.store import STORE_CATEGORIES, StoreCategory, StoreProductResponse, StorePurchaseRequest, StorePurchaseResponse, StoreStockUpdate
+from app.schemas.store import (
+    STORE_CATEGORIES, StoreCategory, StoreProductResponse, StoreProductDetailResponse,
+    StorePurchaseRequest, StorePurchaseResponse, StoreStockUpdate,
+)
 from app.services.cloudinary import upload_image
 from app.crud import store as store_crud
 from app.crud import point as point_crud
 from app.crud import inventory as inventory_crud
+from app.crud import raffle as raffle_crud
 
 router = APIRouter()
 
@@ -108,12 +112,20 @@ def list_store_products(
 
 
 # 상점 상품 상세 조회
-@router.get("/{store_product_id}", response_model=StoreProductResponse)
-def get_store_product(store_product_id: int, db: Session = Depends(get_db)):
+@router.get("/{store_product_id}", response_model=StoreProductDetailResponse)
+def get_store_product(
+    store_product_id: int,
+    db: Session = Depends(get_db),
+    viewer: Optional[User] = Depends(get_optional_user),
+):
     product = store_crud.get_store_product(db, store_product_id)
     if not product:
         raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다")
-    return product
+    response = StoreProductDetailResponse.model_validate(product)
+    # 결제 상점 상품은 응모 전환 모금 현황을 함께 내려준다
+    if product.pay_type == "cash":
+        response.funding = raffle_crud.get_funding_status(db, product, viewer)
+    return response
 
 
 # 쌀포인트 상점 구매 — 쌀포인트 차감, 재고 차감, 보관함 적재를 한 트랜잭션으로 처리
