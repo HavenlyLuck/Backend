@@ -106,9 +106,11 @@ def delete_store_product(
 @router.get("", response_model=list[StoreProductResponse])
 def list_store_products(
     pay_type: Optional[Literal["cash", "ssal"]] = Query(None),
+    # 기본은 품절 상품을 숨긴다. 관리자 화면·상품 상세처럼 품절 상품도 필요하면 true
+    include_sold_out: bool = Query(False),
     db: Session = Depends(get_db),
 ):
-    return store_crud.get_store_products(db, pay_type=pay_type)
+    return store_crud.get_store_products(db, pay_type=pay_type, include_sold_out=include_sold_out)
 
 
 # 상점 상품 상세 조회

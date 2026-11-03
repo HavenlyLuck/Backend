@@ -32,6 +32,7 @@ class StoreProductResponse(BaseModel):
 #  ends_at: 모금 마감 (이때까지 못 모으면 전부 환불), duration_days: 새 모금의 기간
 class StoreFundingStatus(BaseModel):
     available: bool
+    unavailable_reason: Optional[str] = None   # available이 false인 이유 (중복 응모 · 재고 없음 등)
     raffle_product_id: Optional[int] = None
     sold_slots: int
     threshold: int
