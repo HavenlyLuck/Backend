@@ -83,6 +83,7 @@ class MyRaffleEntryResponse(BaseModel):
     sold_out_at: Optional[datetime] = None
     winner_entry_number: Optional[int] = None
     draw_video_url: Optional[str] = None
+    result_checked_at: Optional[datetime] = None   # 당첨결과를 확인한 시각 (없으면 아직 안 봄)
 
     class Config:
         from_attributes = True

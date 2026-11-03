@@ -34,3 +34,4 @@ class RaffleEntry(Base):
     payment_id         = Column(String(64), ForeignKey("payments.payment_id"), unique=True, nullable=True)   # 응모 1건 = 결제 1건 (운포인트 시절 응모는 비어 있음)
     entry_number       = Column(Integer, nullable=False)     # 이 상품에 유저가 처음 응모했을 때 부여받는 번호(1부터, 유저당 1회만). 추가 구매해도 같은 유저면 값이 그대로 이어짐
     created_at         = Column(DateTime, server_default=func.now())
+    result_checked_at  = Column(DateTime, nullable=True)    # 응모자가 마이페이지에서 당첨결과를 확인한 시각 (없으면 아직 안 봄)
