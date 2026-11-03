@@ -22,6 +22,7 @@ class StorageItemResponse(BaseModel):
     carrier: Optional[str] = None
     tracking_number: Optional[str] = None
     shipped_at: Optional[datetime] = None
+    delivered_at: Optional[datetime] = None   # 있으면 배송 완료, 없으면(발송 후) 배송중
 
 
 class ShippingRequest(BaseModel):
@@ -48,3 +49,20 @@ class AdminShipRequest(BaseModel):
     storage_item_ids: list[int]
     carrier: str
     tracking_number: str
+
+
+# 배송 조회 결과 — details는 최신순. level: 1 배송준비 · 2 집화완료 · 3 배송중 · 4 지점 도착 · 5 배송출발 · 6 배송완료
+class TrackingDetail(BaseModel):
+    time: str
+    where: str
+    kind: str
+    level: Optional[int] = None
+
+
+class TrackingResponse(BaseModel):
+    carrier: str
+    tracking_number: str
+    complete: bool
+    level: Optional[int] = None
+    estimate: Optional[str] = None
+    details: list[TrackingDetail]

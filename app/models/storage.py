@@ -20,5 +20,6 @@ class StorageItem(Base):
     carrier           = Column(String(30), nullable=True)    # 발송 처리 때 관리자가 입력한 택배사
     tracking_number   = Column(String(50), nullable=True)    # 송장번호
     shipped_at        = Column(DateTime, nullable=True)
+    delivered_at      = Column(DateTime, nullable=True)    # 배송 조회에서 '배송완료'가 확인된 시각 (없으면 배송중)
     created_at        = Column(DateTime, server_default=func.now())
     updated_at        = Column(DateTime, server_default=func.now(), onupdate=func.now())

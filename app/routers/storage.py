@@ -6,10 +6,11 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.core.dependencies import get_current_user, get_current_admin
 from app.models.user import User
-from app.schemas.storage import StorageItemResponse, ShippingRequest, AdminShippingItemResponse, AdminShipRequest
+from app.schemas.storage import StorageItemResponse, ShippingRequest, AdminShippingItemResponse, AdminShipRequest, TrackingResponse
 from app.crud import storage as storage_crud
 from app.crud import address as address_crud
 from app.crud import payment as payment_crud
+from app.services import tracker
 
 router = APIRouter()
 
@@ -23,6 +24,28 @@ def get_my_storage(
 
 
 # 선택한 보관함 상품 배송 신청 — 보관 중(ready)인 내 상품만 신청 가능
+# 배송 조회 (스마트택배) — 내가 받은 송장만 조회할 수 있다. 배송완료가 확인되면 그 송장의 상품을 배송 완료로 표시
+@router.get("/tracking", response_model=TrackingResponse)
+def track_my_parcel(
+    carrier: str = Query(...),
+    tracking_number: str = Query(...),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    items = storage_crud.get_user_items_by_tracking(db, user.user_id, carrier, tracking_number.strip())
+    if not items:
+        raise HTTPException(status_code=404, detail="내 배송 내역에 없는 송장번호예요")
+    try:
+        result = tracker.track(carrier, tracking_number)
+    except tracker.TrackerNotConfigured as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    except tracker.TrackerError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if result["complete"]:
+        storage_crud.mark_delivered(db, items)
+    return result
+
+
 @router.post("/ship", response_model=list[StorageItemResponse])
 def request_shipping(
     payload: ShippingRequest,

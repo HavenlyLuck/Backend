@@ -7,6 +7,7 @@ class UserSignup(BaseModel):
     email: EmailStr
     password: str
     phone: str                        # 테스트 버전: 실제 본인인증 없이 번호 중복만 확인하고 저장
+    referral_code: Optional[str] = None   # 추천인 코드 (선택)
 
 
 class IdentityVerifyRequest(BaseModel):   # 본인인증 결과 확인 요청

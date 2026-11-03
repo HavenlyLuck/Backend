@@ -9,7 +9,8 @@ from app.core.config import RAFFLE_TICKET_PRICE, RAFFLE_DURATION_DAYS_OPTIONS
 from app.models.user import User
 from app.schemas.raffle import (
     RaffleProductResponse, RaffleEntryResponse, MyRaffleEntryResponse, RaffleEntrantResponse,
-    RaffleDrawCastResponse,
+    RaffleDrawCastResponse, RaffleEntryCancelRequest, RaffleEntryCancelResponse,
+    RaffleEntryCreateResponse, FreeTicketEntryRequest,
 )
 from app.services.cloudinary import upload_image
 from app.crud import raffle as raffle_crud
@@ -104,6 +105,52 @@ def get_raffle_product(raffle_product_id: int, db: Session = Depends(get_db)):
 
 
 # 응모 참여(응모권 결제)는 /payments 에서 처리한다 (app/routers/payment.py)
+
+
+# 내 응모 취소 — 매진 전에만. 고른 장수(없으면 전부)만큼 최근 응모권부터 취소하고 카드 결제를 환불한다(포트원 결제 취소).
+# 환불 요청이 실패해도 응모 취소는 확정되고, 결제 취소는 주기 작업(settle_payments)이 다시 시도한다
+@router.post("/{raffle_product_id}/entries/me/cancel", response_model=RaffleEntryCancelResponse)
+def cancel_my_raffle_entries(
+    raffle_product_id: int,
+    body: Optional[RaffleEntryCancelRequest] = None,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    try:
+        tickets, left, payment_ids, returned = raffle_crud.cancel_my_raffle_entries(
+            db, raffle_product_id, user.user_id, body.ticket_count if body else None,
+        )
+    except LookupError as e:
+        db.rollback()
+        raise HTTPException(status_code=404, detail=str(e))
+    except raffle_crud.RaffleCancelError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    refunded = all([payment_crud.try_cancel_payment(db, pid) for pid in payment_ids])
+    return {
+        "raffle_product_id": raffle_product_id,
+        "cancelled_tickets": tickets,
+        "remaining_tickets": left,
+        "returned_free_tickets": returned,
+        "refunded": refunded,
+    }
+
+
+# 보관함 무료 응모권(첫 구매 선물 · 추천 응모권)으로 결제 없이 응모
+@router.post("/{raffle_product_id}/entries/free", response_model=RaffleEntryCreateResponse)
+def enter_with_free_tickets(
+    raffle_product_id: int,
+    body: FreeTicketEntryRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    try:
+        entry = raffle_crud.enter_with_free_tickets(db, raffle_product_id, user.user_id, body.ticket_count)
+    except raffle_crud.RaffleEntryError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    entry.total_ticket_count = raffle_crud.get_user_total_ticket_count(db, raffle_product_id, user.user_id)
+    return entry
 
 
 # 특정 응모 상품에 대한 내 응모 내역

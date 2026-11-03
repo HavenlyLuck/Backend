@@ -1,3 +1,4 @@
+import logging
 import secrets
 from sqlalchemy import func
 from sqlalchemy.orm import Session
@@ -11,6 +12,9 @@ from app.models.user import User
 from app.crud import storage as storage_crud
 from app.crud import point as point_crud
 from app.crud import inventory as inventory_crud
+from app.services import portone
+from app.crud import referral as referral_crud
+from app.models.free_ticket import FreeTicket
 
 
 def create_raffle_product(
@@ -161,6 +165,40 @@ def fulfill_raffle_entry(
     # 이번 구매로 매진됐으면 매진 시각을 남긴다 — 이 시각부터 RAFFLE_DRAW_DELAY_SECONDS 뒤에 자동 추첨
     if sold + ticket_count >= product.total_slots:
         product.sold_out_at = _utcnow()
+    # 추천인을 등록한 사람의 첫 응모권 구매면 본인·추천인에게 무료 응모권을 1장씩 준다
+    referral_crud.grant_first_purchase_reward(db, user_id)
+    return entry
+
+
+# 보관함의 무료 응모권(첫 구매 선물 · 추천 응모권)으로 결제 없이 응모한다. 응모권 count장을 이 응모에 묶는다
+def enter_with_free_tickets(db: Session, raffle_product_id: int, user_id: int, count: int) -> RaffleEntry:
+    product = get_raffle_product_for_update(db, raffle_product_id)
+    check_can_enter(db, product, count)
+    tickets = referral_crud.lock_unused_tickets(db, user_id, count)
+    if len(tickets) < count:
+        raise RaffleEntryError(f"보관함에 쓸 수 있는 응모권이 {len(tickets)}장뿐이에요")
+    sold = get_sold_ticket_count(db, raffle_product_id)
+
+    entry_number = get_existing_entry_number(db, raffle_product_id, user_id)
+    if entry_number is None:
+        entry_number = get_next_entry_number(db, raffle_product_id)
+    entry = create_raffle_entry(
+        db,
+        raffle_product_id=raffle_product_id,
+        user_id=user_id,
+        ticket_count=count,
+        amount_paid=0,
+        entry_number=entry_number,
+        payment_id=None,
+    )
+    now = _utcnow()
+    for t in tickets:
+        t.raffle_entry_id = entry.entry_id
+        t.used_at = now
+    if sold + count >= product.total_slots:
+        product.sold_out_at = now
+    db.commit()
+    db.refresh(entry)
     return entry
 
 
@@ -183,14 +221,15 @@ def get_existing_entry_number(db: Session, raffle_product_id: int, user_id: int)
     return entry.entry_number if entry else None
 
 
-# 이 상품에 처음 응모하는 유저에게 부여할 다음 응모 번호 (1번부터 시작, 지금까지 응모한 서로 다른 유저 수 + 1)
+# 이 상품에 처음 응모하는 유저에게 부여할 다음 응모 번호 (1번부터, 지금까지 쓴 가장 큰 번호 + 1)
+# 응모자가 응모를 취소하면 번호가 비므로 "응모자 수 + 1"로 매기면 남아 있는 사람과 번호가 겹친다
 def get_next_entry_number(db: Session, raffle_product_id: int) -> int:
-    distinct_users = (
-        db.query(func.count(func.distinct(RaffleEntry.user_id)))
+    max_number = (
+        db.query(func.coalesce(func.max(RaffleEntry.entry_number), 0))
         .filter(RaffleEntry.raffle_product_id == raffle_product_id)
         .scalar()
     )
-    return distinct_users + 1
+    return int(max_number) + 1
 
 
 def get_user_raffle_entries(db: Session, raffle_product_id: int, user_id: int) -> list[RaffleEntry]:
@@ -254,6 +293,12 @@ def cancel_expired_raffles(db: Session) -> None:
 # 응모를 취소하고 응모권 결제를 카드 취소 대기로 돌린다 (commit은 호출한 쪽에서). 반환: 환불할 payment_id들
 def _cancel_raffle(db: Session, product: RaffleProduct, reason: str) -> list[str]:
     product.status = "cancelled"
+    # 무료 응모권으로 응모한 것은 보관함으로 돌려준다
+    entry_ids = [eid for (eid,) in db.query(RaffleEntry.entry_id).filter(RaffleEntry.raffle_product_id == product.raffle_product_id)]
+    if entry_ids:
+        db.query(FreeTicket).filter(FreeTicket.raffle_entry_id.in_(entry_ids)).update(
+            {"raffle_entry_id": None, "used_at": None}, synchronize_session=False,
+        )
     payment_ids = [
         pid for (pid,) in db.query(Payment.payment_id)
         .join(RaffleEntry, RaffleEntry.payment_id == Payment.payment_id)
@@ -284,6 +329,104 @@ def cancel_raffle_by_admin(db: Session, raffle_product_id: int) -> tuple[RaffleP
     db.commit()
     db.refresh(product)
     return product, payment_ids
+
+
+# 응모자 본인의 응모 취소 — 매진 전·마감 전에만. ticket_count장(None이면 전부)을 취소해 판매 수량을 되돌린다.
+# 최근에 산 응모권부터 취소한다:
+#   - 통째로 취소되는 결제는 카드 취소 대기로 돌린다 (실제 환불은 호출한 쪽에서 바로 요청, 실패하면 주기 작업이 다시 시도)
+#   - 일부만 취소되는 결제 1건은 여기서 바로 포트원 부분 취소를 하고, 실패하면 아무것도 바꾸지 않는다
+# 남은 응모권이 있으면 응모 번호는 그대로 유지된다.
+# 무료 응모권으로 응모한 장수는 보관함으로 돌려준다.
+# 반환: (취소한 응모권 수, 남은 응모권 수, 카드 취소 대기로 돌린 payment_id들, 보관함으로 돌려준 무료 응모권 수)
+def cancel_my_raffle_entries(
+    db: Session, raffle_product_id: int, user_id: int, ticket_count: Optional[int] = None,
+) -> tuple[int, int, list[str], int]:
+    # 상품 행을 잠가서 같은 시각의 응모권 구매·자동 추첨과 겹치지 않게 한다
+    product = get_raffle_product_for_update(db, raffle_product_id)
+    if not product:
+        raise LookupError("상품을 찾을 수 없습니다")
+    if product.status != "open" or product.ends_at <= _utcnow():
+        raise RaffleCancelError("진행 중인 응모만 취소할 수 있어요")
+    if product.sold_out_at is not None or get_sold_ticket_count(db, raffle_product_id) >= product.total_slots:
+        raise RaffleCancelError("매진된 응모는 취소할 수 없어요 (곧 추첨돼요)")
+
+    entries = (
+        db.query(RaffleEntry)
+        .filter(RaffleEntry.raffle_product_id == raffle_product_id, RaffleEntry.user_id == user_id)
+        .order_by(RaffleEntry.created_at.desc(), RaffleEntry.entry_id.desc())
+        .all()
+    )
+    if not entries:
+        raise RaffleCancelError("취소할 응모가 없어요")
+    total = sum(e.ticket_count for e in entries)
+    if ticket_count is None:
+        ticket_count = total
+    if not 1 <= ticket_count <= total:
+        raise RaffleCancelError(f"1장부터 {total}장까지 취소할 수 있어요")
+
+    payment_ids = [e.payment_id for e in entries if e.payment_id]
+    payments = {
+        p.payment_id: p for p in db.query(Payment)
+        .filter(Payment.payment_id.in_(payment_ids), Payment.status == "paid")
+        .with_for_update()
+    } if payment_ids else {}
+    # 무료 응모권 응모는 묶인 응모권 수가 장수와 같아야 한다
+    free_counts = dict(
+        db.query(FreeTicket.raffle_entry_id, func.count(FreeTicket.free_ticket_id))
+        .filter(FreeTicket.raffle_entry_id.in_([e.entry_id for e in entries]))
+        .group_by(FreeTicket.raffle_entry_id)
+        .all()
+    )
+    for e in entries:
+        ok = e.payment_id in payments if e.payment_id else free_counts.get(e.entry_id, 0) == e.ticket_count
+        # 예전 포인트 응모나 이미 환불 처리 중인 결제가 섞여 있으면 화면에서 취소하지 않는다
+        if not ok:
+            raise RaffleCancelError("이 응모는 화면에서 취소할 수 없어요. 고객센터로 문의해 주세요")
+
+    reason = "응모자가 응모를 취소했습니다"
+    full_cancel_ids: list[str] = []
+    partial: Optional[tuple[Payment, int]] = None   # (결제, 환불할 금액)
+    returned = 0
+    remaining = ticket_count
+    for e in entries:
+        if remaining == 0:
+            break
+        take = min(e.ticket_count, remaining)
+        remaining -= take
+        if not e.payment_id:
+            # 무료 응모권 — 취소한 장수만큼 보관함으로 돌려준다
+            returned += referral_crud.return_tickets(db, e.entry_id, take)
+            if take == e.ticket_count:
+                db.delete(e)
+            else:
+                e.ticket_count -= take
+            continue
+        payment = payments[e.payment_id]
+        if take == e.ticket_count:
+            payment.status = "cancel_requested"
+            payment.cancel_reason = reason
+            full_cancel_ids.append(payment.payment_id)
+            db.delete(e)
+        else:
+            refund = take * product.ticket_price
+            partial = (payment, refund)
+            e.ticket_count -= take
+            e.amount_paid -= refund
+
+    if partial:
+        payment, refund = partial
+        try:
+            portone.cancel_payment_partial(payment.payment_id, refund, payment.amount, f"{reason} (일부)")
+        except portone.PortOneError:
+            logging.exception("raffle partial cancel failed: %s", payment.payment_id)
+            db.rollback()
+            raise RaffleCancelError("카드 결제 취소에 실패했어요. 잠시 후 다시 시도해 주세요")
+        # 결제 금액·장수를 남은 만큼으로 줄인다 (정산은 이 금액으로 계산된다)
+        payment.amount -= refund
+        payment.quantity -= refund // product.ticket_price
+
+    db.commit()
+    return ticket_count, total - ticket_count, full_cancel_ids, returned
 
 
 # 추첨 룰렛 구슬 배치용 — 응모 번호별 총 응모권 수
@@ -322,17 +465,18 @@ def save_draw_result(
     product.status = "completed"
     # 당첨 상품은 결과 확정과 같은 트랜잭션에서 당첨자 보관함으로 들어간다
     storage_crud.add_raffle_win(db, user_id=winner_user_id, raffle_product_id=product.raffle_product_id)
-    # 낙첨자에게는 구매한 응모권 수 × 응모권 가격만큼 쌀포인트를 지급한다 (당첨자는 지급 없음)
-    for user_id, tickets, _ in get_user_ticket_totals(db, product.raffle_product_id):
-        if user_id == winner_user_id:
+    # 낙첨자에게는 돈 내고 산 응모권 수 × 응모권 가격(= 결제 금액)만큼 쌀포인트를 지급한다
+    # (당첨자, 무료 응모권으로 응모한 장수는 지급 없음)
+    for user_id, _, paid_amount in get_user_ticket_totals(db, product.raffle_product_id):
+        if user_id == winner_user_id or paid_amount <= 0:
             continue
         point_crud.apply_point_change(
             db,
             user_id=user_id,
-            amount=tickets * product.ticket_price,
+            amount=paid_amount,
             reason="raffle_consolation",
             reference_id=product.raffle_product_id,
-            description=f"{product.product_name} 낙첨 보상 ({tickets}장)",
+            description=f"{product.product_name} 낙첨 보상 ({paid_amount // product.ticket_price}장)",
         )
     db.commit()
     db.refresh(product)

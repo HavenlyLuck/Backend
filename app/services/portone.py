@@ -120,3 +120,13 @@ def cancel_payment(payment_id: str, reason: str) -> None:
         if str(e) == "PAYMENT_ALREADY_CANCELLED":
             return
         raise
+
+
+def cancel_payment_partial(payment_id: str, amount: int, cancellable_amount: int, reason: str) -> None:
+    """결제 부분 취소. cancellable_amount는 지금 취소할 수 있다고 알고 있는 금액 —
+    포트원 쪽 금액과 다르면(이미 다른 취소가 반영됐으면) 포트원이 거절해서 두 번 환불되지 않는다"""
+    _call("POST", f"/payments/{_quote(payment_id)}/cancel", {
+        "amount": amount,
+        "currentCancellableAmount": cancellable_amount,
+        "reason": reason,
+    })

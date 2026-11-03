@@ -8,7 +8,7 @@ from app.models.user import User
 from app.models.raffle import RaffleEntry
 from app.models.storage import StorageItem
 from app.schemas.payment import (
-    PaymentPrepareRequest, PaymentPrepareResponse, PaymentCustomer, PaymentCompleteResponse,
+    PaymentPrepareRequest, PaymentPrepareResponse, PaymentCustomer, PaymentCompleteResponse, MyPaymentResponse,
 )
 from app.schemas.raffle import RaffleEntryCreateResponse
 from app.crud import payment as payment_crud
@@ -25,6 +25,12 @@ def _quantity(payload: PaymentPrepareRequest) -> int:
     if not payload.quantity or payload.quantity <= 0:
         raise HTTPException(status_code=400, detail="수량은 1개 이상이어야 합니다")
     return payload.quantity
+
+
+# 마이페이지 구매 내역 — 내 카드 결제(응모권 · 쿠지 · 결제 상점), 환불된 것 포함, 최신순
+@router.get("/me", response_model=list[MyPaymentResponse])
+def list_my_payments(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    return payment_crud.get_my_payments(db, user.user_id)
 
 
 # 결제 주문 만들기 — 금액은 서버가 정한다. 지금 살 수 있는 상태인지 먼저 확인하고(결제 후 다시 확인한다)
@@ -97,7 +103,8 @@ def complete_payment(payment_id: str, db: Session = Depends(get_db), user: User 
         raise HTTPException(status_code=502, detail=str(e))
 
     payment = payment_crud.get_payment(db, payment_id)
-    status = "cancelled" if outcome["status"] == "cancel_requested" else outcome["status"]
+    # 환불 대기·환불 실패(수동 처리)도 사용자에게는 "취소됨"으로 보여준다
+    status = "cancelled" if outcome["status"] in ("cancel_requested", "cancel_failed") else outcome["status"]
     response = PaymentCompleteResponse(
         payment_id=payment_id, order_type=payment.order_type, status=status, message=outcome["message"],
     )
