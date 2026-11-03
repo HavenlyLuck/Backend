@@ -17,6 +17,7 @@ from app.crud import kuji as kuji_crud
 from app.crud import store as store_crud
 from app.routers.kuji import validate_ticket_numbers, build_draw_response
 from app.routers.store import store_purchase_response
+from app.core.config import RAFFLE_TICKET_PRICE
 
 router = APIRouter()
 
@@ -46,6 +47,17 @@ def prepare_payment(payload: PaymentPrepareRequest, db: Session = Depends(get_db
             raise HTTPException(status_code=400, detail=str(e))
         amount = product.ticket_price * quantity
         order_name = f"{product.product_name} 응모권 {quantity}장"
+
+    elif payload.order_type == "store_funding":
+        # 상점 상품 → 응모 전환 모금 응모권 (target_id = 상점 상품 id)
+        quantity = _quantity(payload)
+        store_product = store_crud.get_store_product(db, payload.target_id)
+        try:
+            raffle_crud.check_can_fund(db, store_product, quantity, user)
+        except raffle_crud.RaffleEntryError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        amount = RAFFLE_TICKET_PRICE * quantity
+        order_name = f"{store_product.product_name} 응모 전환 응모권 {quantity}장"
 
     elif payload.order_type == "kuji_draw":
         ticket_numbers = payload.ticket_numbers or []
@@ -115,7 +127,7 @@ def complete_payment(payment_id: str, db: Session = Depends(get_db), user: User 
     if status != "paid":
         return response
 
-    if payment.order_type == "raffle_entry":
+    if payment.order_type in ("raffle_entry", "store_funding"):
         entry = db.query(RaffleEntry).filter(RaffleEntry.payment_id == payment_id).first()
         entry.total_ticket_count = raffle_crud.get_user_total_ticket_count(db, entry.raffle_product_id, user.user_id)
         response.raffle_entry = RaffleEntryCreateResponse.model_validate(entry)

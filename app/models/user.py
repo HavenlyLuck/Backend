@@ -20,5 +20,7 @@ class User(Base):
     referral_code        = Column(String(12), unique=True, nullable=True)
     referred_by_user_id  = Column(Integer, ForeignKey("users.user_id"), nullable=True)
     referral_rewarded_at = Column(DateTime, nullable=True)
+    # 응모 상품으로 전환된 뒤 모금 때 산 응모권을 취소한 사람 — 이 시각까지 상점 전환 응모권을 살 수 없다
+    funding_banned_until = Column(DateTime, nullable=True)
     created_at        = Column(DateTime, server_default=func.now())
     updated_at        = Column(DateTime, server_default=func.now(), onupdate=func.now())

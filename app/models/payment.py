@@ -10,7 +10,7 @@ class Payment(Base):
     __tablename__ = "payments"
     payment_id     = Column(String(64), primary_key=True)    # 포트원 paymentId (서버가 만든다)
     user_id        = Column(Integer, ForeignKey("users.user_id"), nullable=False, index=True)
-    order_type     = Column(Enum("raffle_entry", "kuji_draw", "store_purchase", name="payment_order_type"), nullable=False)
+    order_type     = Column(Enum("raffle_entry", "kuji_draw", "store_purchase", "store_funding", name="payment_order_type"), nullable=False)
     target_id      = Column(Integer, nullable=False)          # raffle_product_id / kuji_set_id / store_product_id
     quantity       = Column(Integer, nullable=False)          # 응모권 장수 / 제비 장수 / 구매 수량
     ticket_numbers = Column(JSON, nullable=True)              # 쿠지: 고른 제비 번호들

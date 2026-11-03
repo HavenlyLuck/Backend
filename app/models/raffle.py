@@ -12,7 +12,8 @@ class RaffleProduct(Base):
     ticket_price         = Column(Integer, nullable=False)   # 응모권 1장당 가격(원)
     total_slots          = Column(Integer, nullable=False)
     image_url            = Column(String(500), nullable=True)
-    status               = Column(Enum("open", "completed", "cancelled", name="raffle_status"), nullable=False, default="open", server_default="open")
+    # funding: 상점 상품의 응모 전환 모금 중 (응모권 1/3이 팔리면 open으로 전환, ends_at = 모금 마감)
+    status               = Column(Enum("funding", "open", "completed", "cancelled", name="raffle_status"), nullable=False, default="open", server_default="open")
     starts_at            = Column(DateTime, nullable=False)
     ends_at              = Column(DateTime, nullable=False)   # starts_at + 24시간
     sold_out_at          = Column(DateTime, nullable=True)     # 응모권이 매진된 시각 — 이 시각 + RAFFLE_DRAW_DELAY에 자동 추첨
@@ -20,6 +21,9 @@ class RaffleProduct(Base):
     winner_entry_number  = Column(Integer, nullable=True)     # 추첨으로 뽑힌 응모 번호
     winner_user_id       = Column(Integer, ForeignKey("users.user_id"), nullable=True)
     draw_video_url       = Column(String(500), nullable=True)  # (예전 수동 추첨의 룰렛 녹화 영상 — 자동 추첨부터는 비어 있음)
+    # 상점 상품에서 전환 모금으로 만들어진 응모 — 재고 1개를 묶어 두고, 응모가 취소되면 상점으로 돌려준다
+    funding_store_product_id = Column(Integer, ForeignKey("store_products.store_product_id"), nullable=True, index=True)
+    converted_at         = Column(DateTime, nullable=True)     # 모금이 1/3을 넘어 응모 상품으로 전환된 시각
     created_at           = Column(DateTime, server_default=func.now())
     updated_at           = Column(DateTime, server_default=func.now(), onupdate=func.now())
 

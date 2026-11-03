@@ -6,7 +6,8 @@ from app.schemas.raffle import RaffleEntryCreateResponse
 from app.schemas.kuji import KujiDrawResponse
 from app.schemas.store import StorePurchaseResponse
 
-PaymentOrderType = Literal["raffle_entry", "kuji_draw", "store_purchase"]
+# store_funding: 상점 상품의 응모 전환 모금 응모권 (target_id = 상점 상품 id)
+PaymentOrderType = Literal["raffle_entry", "kuji_draw", "store_purchase", "store_funding"]
 
 
 # 결제 주문 만들기 — raffle_entry: quantity(응모권 장수), kuji_draw: ticket_numbers, store_purchase: quantity
