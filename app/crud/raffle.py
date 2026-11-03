@@ -510,6 +510,25 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
+# 당첨결과 확인 기록 — 이 상품에 대한 내 응모 전부에 확인 시각을 남긴다 (어느 기기에서 봐도 다시 뜨지 않게).
+# 추첨이 끝난 상품만. 반환: 기록할 응모가 있었는지
+def mark_result_checked(db: Session, raffle_product_id: int, user_id: int) -> bool:
+    product = get_raffle_product(db, raffle_product_id)
+    if not product or product.status != "completed" or product.winner_entry_number is None:
+        return False
+    entries = (
+        db.query(RaffleEntry)
+        .filter(RaffleEntry.raffle_product_id == raffle_product_id, RaffleEntry.user_id == user_id)
+        .all()
+    )
+    now = _utcnow()
+    for entry in entries:
+        if entry.result_checked_at is None:
+            entry.result_checked_at = now
+    db.commit()
+    return bool(entries)
+
+
 def get_draw_at(product: RaffleProduct) -> Optional[datetime]:
     if product.sold_out_at is None:
         return None

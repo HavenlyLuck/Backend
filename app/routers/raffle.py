@@ -172,6 +172,17 @@ def get_my_raffle_entries_all(
     return raffle_crud.get_user_raffle_entries_all(db, user.user_id)
 
 
+# 당첨결과 확인 기록 — 마이페이지에서 결과를 열면 부른다. 여러 번 불러도 처음 확인한 시각이 남는다
+@router.post("/{raffle_product_id}/result-checked", status_code=204)
+def mark_raffle_result_checked(
+    raffle_product_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    if not raffle_crud.mark_result_checked(db, raffle_product_id, user.user_id):
+        raise HTTPException(status_code=404, detail="결과를 확인할 응모가 없습니다")
+
+
 # 추첨 룰렛 구슬 배치용 — 응모 번호별 총 응모권 수 (관리자 전용)
 @router.get("/{raffle_product_id}/entrants", response_model=list[RaffleEntrantResponse])
 def get_raffle_entrants(
