@@ -5,6 +5,7 @@ from app.database import Base
 
 # 포트원 카드 결제 1건 — 응모권·쿠지·결제 상점 구매가 모두 이 주문을 거친다.
 # pending(결제 대기) → paid(지급 완료) / cancel_requested(지급 실패·응모 취소로 환불 대기) → cancelled(환불 완료) / failed(결제 안 됨)
+# cancel_failed: 포트원이 "이 결제는 더 취소할 수 없다"고 답한 환불 — 다시 시도하지 않고 관리자가 직접 확인한다
 class Payment(Base):
     __tablename__ = "payments"
     payment_id     = Column(String(64), primary_key=True)    # 포트원 paymentId (서버가 만든다)
@@ -15,7 +16,7 @@ class Payment(Base):
     ticket_numbers = Column(JSON, nullable=True)              # 쿠지: 고른 제비 번호들
     order_name     = Column(String(200), nullable=False)
     amount         = Column(Integer, nullable=False)          # 결제해야 하는 금액(원) — 포트원 결제 금액과 반드시 같아야 지급한다
-    status         = Column(Enum("pending", "paid", "cancel_requested", "cancelled", "failed", name="payment_status"), nullable=False, default="pending", server_default="pending", index=True)
+    status         = Column(Enum("pending", "paid", "cancel_requested", "cancelled", "failed", "cancel_failed", name="payment_status"), nullable=False, default="pending", server_default="pending", index=True)
     cancel_reason  = Column(String(200), nullable=True)
     paid_at        = Column(DateTime, nullable=True)
     cancelled_at   = Column(DateTime, nullable=True)

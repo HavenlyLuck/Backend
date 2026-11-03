@@ -111,6 +111,7 @@ def _item_dict(item, raffle, store, kuji, prize) -> dict:
         "carrier": item.carrier,
         "tracking_number": item.tracking_number,
         "shipped_at": item.shipped_at,
+        "delivered_at": item.delivered_at,
     }
 
 
@@ -231,3 +232,29 @@ def cancel_store_purchase(db: Session, user_id: int, storage_item_id: int) -> st
     db.delete(item)
     db.commit()
     return payment.payment_id
+
+
+# 이 사람이 이 송장으로 받은 상품 (배송 조회 권한 확인용)
+def get_user_items_by_tracking(db: Session, user_id: int, carrier: str, tracking_number: str) -> list[StorageItem]:
+    return (
+        db.query(StorageItem)
+        .filter(
+            StorageItem.user_id == user_id,
+            StorageItem.status == "shipped",
+            StorageItem.carrier == carrier,
+            StorageItem.tracking_number == tracking_number,
+        )
+        .all()
+    )
+
+
+# 배송 조회에서 배송완료가 확인되면 같은 송장으로 나간 상품을 모두 배송 완료로 표시한다
+def mark_delivered(db: Session, items: list[StorageItem]) -> None:
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    changed = False
+    for item in items:
+        if item.delivered_at is None:
+            item.delivered_at = now
+            changed = True
+    if changed:
+        db.commit()

@@ -20,6 +20,8 @@ class Settings(BaseSettings):
     PORTONE_API_SECRET: Optional[str] = None
     # 포트원 상점 아이디 (store-xxxx). 선택값
     PORTONE_STORE_ID: Optional[str] = None
+    # 스마트택배(스윗트래커) 배송 조회 API 키 (tracking.sweettracker.co.kr 에서 발급). 없으면 배송 조회가 비활성화된다
+    SWEETTRACKER_API_KEY: Optional[str] = None
 
 
     class Config:

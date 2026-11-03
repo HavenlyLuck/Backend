@@ -18,10 +18,14 @@ def get_current_user(
 ) -> User:
     try:
         payload = decode_token(credentials.credentials)
-    except JWTError:
+        user_id = int(payload.get("sub"))
+    except (JWTError, TypeError, ValueError):
+        raise HTTPException(status_code=401, detail="유효하지 않은 토큰입니다")
+    # 리프레시 토큰(type=refresh)은 새 액세스 토큰을 받을 때만 쓸 수 있다
+    if payload.get("type") != "user":
         raise HTTPException(status_code=401, detail="유효하지 않은 토큰입니다")
 
-    user = db.query(User).filter(User.user_id == int(payload.get("sub"))).first()
+    user = db.query(User).filter(User.user_id == user_id).first()
     if not user:
         raise HTTPException(status_code=401, detail="사용자를 찾을 수 없습니다")
     return user

@@ -11,6 +11,9 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from app.models.payment import Payment
+from app.models.raffle import RaffleProduct
+from app.models.kuji import KujiSet
+from app.models.store import StoreProduct
 from app.services import portone
 from app.crud import raffle as raffle_crud
 from app.crud import kuji as kuji_crud
@@ -97,7 +100,18 @@ def _fulfill(db: Session, payment: Payment) -> list[int]:
     return []
 
 
-# 포트원에 결제 취소를 요청한다. 실패하면 cancel_requested로 남겨 두고 주기 작업이 다시 시도한다
+# 다시 시도해도 절대 성공하지 않는 포트원 취소 오류 — PG에서 이미 취소됐거나(테스트 결제 일괄 취소 등)
+# 취소할 금액이 남아 있지 않은 경우. 이때는 재시도를 멈추고 cancel_failed로 남겨 관리자가 확인한다
+PERMANENT_CANCEL_ERRORS = {
+    "MAX_CANCEL_COUNT_REACHED",
+    "PAYMENT_NOT_PAID",
+    "PAYMENT_NOT_FOUND",
+    "CANCEL_AMOUNT_EXCEEDS_CANCELLABLE_AMOUNT",
+    "CANCELLABLE_AMOUNT_CONSISTENCY_BROKEN",
+}
+
+
+# 포트원에 결제 취소를 요청한다. 잠깐의 실패면 cancel_requested로 남겨 두고 주기 작업이 다시 시도한다
 def _try_cancel(db: Session, payment_id: str) -> bool:
     payment = _lock(db, payment_id)
     if not payment or payment.status != "cancel_requested":
@@ -105,7 +119,13 @@ def _try_cancel(db: Session, payment_id: str) -> bool:
         return payment is not None and payment.status == "cancelled"
     try:
         portone.cancel_payment(payment.payment_id, payment.cancel_reason or "주문 취소")
-    except portone.PortOneError:
+    except portone.PortOneError as e:
+        if str(e) in PERMANENT_CANCEL_ERRORS:
+            logging.error("payment cancel failed permanently (%s), needs manual check: %s", e, payment_id)
+            payment.status = "cancel_failed"
+            payment.cancel_reason = f"{payment.cancel_reason or '주문 취소'} — 자동 환불 실패({e}), 수동 확인 필요"[:200]
+            db.commit()
+            return False
         logging.exception("payment cancel failed: %s", payment_id)
         db.rollback()
         return False
@@ -130,7 +150,7 @@ def _request_cancel(db: Session, payment_id: str, reason: str) -> None:
 
 
 # 결제 확인 후 지급. user_id를 주면 그 사람의 주문인지도 확인한다 (주기 작업은 None)
-# 반환: {"status": paid|pending|failed|cancel_requested|cancelled, "message", "conflicts"}
+# 반환: {"status": paid|pending|failed|cancel_requested|cancelled|cancel_failed, "message", "conflicts"}
 def complete_payment(db: Session, payment_id: str, user_id: Optional[int] = None) -> dict:
     payment = _lock(db, payment_id)
     if not payment or (user_id is not None and payment.user_id != user_id):
@@ -212,3 +232,47 @@ def settle_payments(db: Session) -> None:
 
 def get_payment(db: Session, payment_id: str) -> Optional[Payment]:
     return db.query(Payment).filter(Payment.payment_id == payment_id).first()
+
+
+# 마이페이지 구매 내역 — 결제가 끝난 카드 결제(환불된 것 포함), 최신순. 상품 이름·사진은 각 상품에서 가져온다
+def get_my_payments(db: Session, user_id: int) -> list[dict]:
+    payments = (
+        db.query(Payment)
+        .filter(
+            Payment.user_id == user_id,
+            Payment.paid_at.isnot(None),
+            Payment.status.in_(["paid", "cancel_requested", "cancelled", "cancel_failed"]),
+        )
+        .order_by(Payment.paid_at.desc())
+        .all()
+    )
+
+    def lookup(model, key, name_col, ids):
+        if not ids:
+            return {}
+        return {
+            row[0]: (row[1], row[2])
+            for row in db.query(key, name_col, model.image_url).filter(key.in_(ids))
+        }
+
+    ids_of = lambda t: {p.target_id for p in payments if p.order_type == t}
+    products = {
+        "raffle_entry": lookup(RaffleProduct, RaffleProduct.raffle_product_id, RaffleProduct.product_name, ids_of("raffle_entry")),
+        "kuji_draw": lookup(KujiSet, KujiSet.kuji_set_id, KujiSet.title, ids_of("kuji_draw")),
+        "store_purchase": lookup(StoreProduct, StoreProduct.store_product_id, StoreProduct.product_name, ids_of("store_purchase")),
+    }
+    result = []
+    for p in payments:
+        name, image = products[p.order_type].get(p.target_id, (p.order_name, None))
+        result.append({
+            "payment_id": p.payment_id,
+            "order_type": p.order_type,
+            "target_id": p.target_id,
+            "product_name": name,
+            "image_url": image,
+            "quantity": p.quantity,
+            "amount": p.amount,
+            "status": "paid" if p.status == "paid" else "refunded",
+            "paid_at": p.paid_at,
+        })
+    return result

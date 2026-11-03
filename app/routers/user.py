@@ -15,6 +15,7 @@ from app.schemas.user import (
 )
 from app.core.security import hash_password, verify_password, create_token, decode_token
 from app.core.dependencies import get_current_user
+from app.crud import referral as referral_crud
 from app.schemas.avatar import AvatarConfig
 from app.core.avatar_items import AVATAR_ITEM_SLOTS, OVERLAY_SLOTS, find_item_id
 from app.crud import avatar_item as avatar_item_crud
@@ -99,6 +100,12 @@ def signup(body: UserSignup, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="올바른 휴대폰 번호를 입력해주세요")
     if db.query(User).filter(User.phone == phone).first():
         raise HTTPException(status_code=400, detail="이미 가입된 휴대폰 번호입니다")
+    referrer = None
+    if body.referral_code and body.referral_code.strip():
+        try:
+            referrer = referral_crud.resolve_referrer(db, body.referral_code)
+        except referral_crud.ReferralError as e:
+            raise HTTPException(status_code=400, detail=str(e))
 
     user = User(
         login_id=body.login_id,
@@ -107,6 +114,8 @@ def signup(body: UserSignup, db: Session = Depends(get_db)):
         password=hash_password(body.password),
         phone=phone,
         phone_verified_at=datetime.now(timezone.utc).replace(tzinfo=None),
+        referral_code=referral_crud.new_referral_code(db),
+        referred_by_user_id=referrer.user_id if referrer else None,
     )
     db.add(user)
     db.commit()
@@ -147,13 +156,14 @@ def login(body: UserLogin, db: Session = Depends(get_db)):
 def refresh(body: RefreshRequest, db: Session = Depends(get_db)):
     try:
         payload = decode_token(body.refresh_token)
-    except JWTError:
+        user_id = int(payload.get("sub"))
+    except (JWTError, TypeError, ValueError):
         raise HTTPException(status_code=401, detail="유효하지 않은 리프레시 토큰입니다")
 
     if payload.get("type") != "refresh":
         raise HTTPException(status_code=401, detail="유효하지 않은 리프레시 토큰입니다")
 
-    user = db.query(User).filter(User.user_id == int(payload.get("sub"))).first()
+    user = db.query(User).filter(User.user_id == user_id).first()
     if not user:
         raise HTTPException(status_code=401, detail="사용자를 찾을 수 없습니다")
 

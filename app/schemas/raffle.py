@@ -102,3 +102,22 @@ class RaffleDrawCastResponse(BaseModel):
     draw_at: Optional[datetime] = None            # 자동 추첨 예정 시각
     winner_entry_number: Optional[int] = None     # 추첨 전에는 None
     cast: list[RaffleCastMember]
+
+
+# 내 응모 취소 요청 — ticket_count가 없으면 전부 취소
+class RaffleEntryCancelRequest(BaseModel):
+    ticket_count: Optional[int] = None
+
+
+# 내 응모 취소 결과 — refunded가 False면 카드 환불 요청이 잠시 실패해 서버가 다시 시도하는 중
+class RaffleEntryCancelResponse(BaseModel):
+    raffle_product_id: int
+    cancelled_tickets: int
+    remaining_tickets: int
+    returned_free_tickets: int = 0   # 무료 응모권으로 응모한 장수 중 보관함으로 돌려준 수
+    refunded: bool
+
+
+# 보관함 무료 응모권으로 응모 — ticket_count장 사용
+class FreeTicketEntryRequest(BaseModel):
+    ticket_count: int = 1

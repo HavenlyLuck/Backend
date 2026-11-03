@@ -1,4 +1,5 @@
 from pydantic import BaseModel
+from datetime import datetime
 from typing import Literal, Optional
 
 from app.schemas.raffle import RaffleEntryCreateResponse
@@ -42,3 +43,17 @@ class PaymentCompleteResponse(BaseModel):
     raffle_entry: Optional[RaffleEntryCreateResponse] = None
     kuji_draw: Optional[KujiDrawResponse] = None
     store_purchase: Optional[StorePurchaseResponse] = None
+
+
+# 마이페이지 구매 내역 1건 — 카드 결제 1건(응모권 · 쿠지 · 결제 상점)
+# status: paid(결제 완료) / refunded(환불됨 — 응모 취소·구매 취소·지급 실패 등. 환불 처리 중이어도 refunded)
+class MyPaymentResponse(BaseModel):
+    payment_id: str
+    order_type: PaymentOrderType
+    target_id: int
+    product_name: str
+    image_url: Optional[str] = None
+    quantity: int                       # 응모권 장수 / 제비 장수 / 구매 수량 (부분 취소 후엔 남은 수)
+    amount: int                         # 결제 금액(원, 부분 취소 후엔 남은 금액)
+    status: Literal["paid", "refunded"]
+    paid_at: datetime
