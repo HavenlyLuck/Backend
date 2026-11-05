@@ -6,7 +6,7 @@ class UserSignup(BaseModel):
     nickname: str
     email: EmailStr
     password: str
-    phone: str                        # 테스트 버전: 실제 본인인증 없이 번호 중복만 확인하고 저장
+    identity_verification_id: str     # 포트원 본인인증 ID (이름·전화번호·인증시간은 서버가 포트원에서 직접 조회)
     referral_code: Optional[str] = None   # 추천인 코드 (선택)
 
 

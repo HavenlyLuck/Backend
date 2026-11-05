@@ -18,7 +18,7 @@ class PaymentPrepareRequest(BaseModel):
     ticket_numbers: Optional[list[int]] = None
 
 
-# 결제창 구매자 정보 (KG이니시스 PC 결제는 이름·전화번호·이메일이 필수)
+# 결제창 구매자 정보 (이름·전화번호·이메일)
 class PaymentCustomer(BaseModel):
     full_name: str
     phone_number: str

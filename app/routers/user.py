@@ -1,5 +1,4 @@
 import re
-from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import HTTPBearer
@@ -94,12 +93,8 @@ def signup(body: UserSignup, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="이미 사용중인 닉네임입니다")
     if db.query(User).filter(User.email == body.email).first():
         raise HTTPException(status_code=400, detail="이미 사용중인 이메일입니다")
-    # 테스트 버전: 포트원 본인인증 없이 번호 형식·중복만 확인한다
-    phone = _normalize_phone(body.phone)
-    if not phone:
-        raise HTTPException(status_code=400, detail="올바른 휴대폰 번호를 입력해주세요")
-    if db.query(User).filter(User.phone == phone).first():
-        raise HTTPException(status_code=400, detail="이미 가입된 휴대폰 번호입니다")
+    # 전화번호·이름은 클라이언트 값을 믿지 않고 포트원에서 인증된 값을 쓴다 (이미 가입된 번호면 400)
+    identity = _verify_identity(body.identity_verification_id, db)
     referrer = None
     if body.referral_code and body.referral_code.strip():
         try:
@@ -112,8 +107,9 @@ def signup(body: UserSignup, db: Session = Depends(get_db)):
         nickname=body.nickname,
         email=body.email,
         password=hash_password(body.password),
-        phone=phone,
-        phone_verified_at=datetime.now(timezone.utc).replace(tzinfo=None),
+        name=identity["name"],
+        phone=identity["phone"],
+        phone_verified_at=identity["verified_at"],
         referral_code=referral_crud.new_referral_code(db),
         referred_by_user_id=referrer.user_id if referrer else None,
     )
