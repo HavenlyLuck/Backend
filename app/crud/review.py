@@ -17,7 +17,17 @@ def _now() -> datetime:
 
 # ── 후기 ───────────────────────────────────────────
 
-def _review_dict(review: Review, nickname: str, viewer_id: Optional[int], pay_type: Optional[str] = None) -> dict:
+# 후기 작성자 — 가입 아이디의 가운데를 가린다 (abcdefg → ab****g). 원래 아이디는 응답에 넣지 않는다
+def mask_login_id(login_id: str) -> str:
+    n = len(login_id)
+    if n <= 2:
+        return login_id[:1] + "*" * (n - 1)
+    if n <= 4:
+        return login_id[0] + "*" * (n - 2) + login_id[-1]
+    return login_id[:2] + "*" * (n - 3) + login_id[-1]
+
+
+def _review_dict(review: Review, login_id: str, viewer_id: Optional[int], pay_type: Optional[str] = None) -> dict:
     return {
         "review_id": review.review_id,
         "rating": review.rating,
@@ -27,7 +37,7 @@ def _review_dict(review: Review, nickname: str, viewer_id: Optional[int], pay_ty
         "product_name": review.product_name,
         "product_type": review.product_type,
         "pay_type": pay_type if review.product_type == "store" else None,
-        "nickname": nickname,
+        "author": mask_login_id(login_id),
         "is_mine": viewer_id is not None and review.user_id == viewer_id,
         "created_at": review.created_at,
     }
@@ -36,14 +46,14 @@ def _review_dict(review: Review, nickname: str, viewer_id: Optional[int], pay_ty
 def get_reviews(db: Session, viewer_id: Optional[int] = None) -> list[dict]:
     # 상점 후기는 일반 상점/쌀포인트 상점을 나눠 보여주려고 상품의 결제 방식을 붙인다
     rows = (
-        db.query(Review, User.nickname, StoreProduct.pay_type)
+        db.query(Review, User.login_id, StoreProduct.pay_type)
         .join(User, Review.user_id == User.user_id)
         .outerjoin(StorageItem, Review.storage_item_id == StorageItem.storage_item_id)
         .outerjoin(StoreProduct, StorageItem.store_product_id == StoreProduct.store_product_id)
         .order_by(Review.created_at.desc(), Review.review_id.desc())
         .all()
     )
-    return [_review_dict(r, nickname, viewer_id, pay_type) for r, nickname, pay_type in rows]
+    return [_review_dict(r, login_id, viewer_id, pay_type) for r, login_id, pay_type in rows]
 
 
 # 내 보관함 상품 중 아직 후기를 안 쓴 것
@@ -94,7 +104,7 @@ def create_review(
     db.add(review)
     db.commit()
     db.refresh(review)
-    return _review_dict(review, user.nickname, user.user_id, item["pay_type"])
+    return _review_dict(review, user.login_id, user.user_id, item["pay_type"])
 
 
 def get_review(db: Session, review_id: int) -> Optional[Review]:

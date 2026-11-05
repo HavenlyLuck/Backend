@@ -14,7 +14,7 @@ class ReviewResponse(BaseModel):
     product_name: Optional[str] = None
     product_type: Optional[ProductType] = None
     pay_type: Optional[Literal["cash", "ssal"]] = None   # 상점 상품일 때만 — cash: 일반 상점, ssal: 쌀포인트 상점
-    nickname: str
+    author: str                                        # 작성자 가입 아이디, 가운데는 * 로 가림 (ab****g)
     is_mine: bool = False
     created_at: datetime
 

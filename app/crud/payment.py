@@ -39,8 +39,9 @@ def _utcnow() -> datetime:
 
 
 def new_payment_id() -> str:
-    # 포트원 paymentId는 ASCII만 — 'pay' + UUID hex (35자)
-    return f"pay{uuid.uuid4().hex}"
+    # 포트원 paymentId는 ASCII만. 한국결제네트웍스(KPN)는 주문번호(MxIssueNO)를 32자까지만 받는다
+    # → 'pay' + UUID hex 앞 29자 = 32자 (무작위 116비트라 겹칠 일은 없다)
+    return f"pay{uuid.uuid4().hex[:29]}"
 
 
 def create_payment(
@@ -181,6 +182,10 @@ def complete_payment(db: Session, payment_id: str, user_id: Optional[int] = None
         # 확인한 시각을 남겨 주기 작업이 오래된 주문만 붙잡고 있지 않게 돌아가며 확인한다
         payment.updated_at = _utcnow()
         db.commit()
+        if not paid or paid["status"] == "READY":
+            # 결제창은 열렸지만 카드 승인이 안 됨(창을 닫음 등). 늦게 승인될 수도 있으니 주문은 pending으로 두고
+            # (주기 작업이 마무리), 사용자에게는 결제가 안 됐다고 알려 준다
+            return {"status": "failed", "message": "결제가 완료되지 않았습니다. 다시 시도해주세요", "conflicts": []}
         return {"status": "pending", "message": "결제가 아직 완료되지 않았습니다", "conflicts": []}
 
     if paid["amount"] != payment.amount or paid["currency"] != "KRW":
