@@ -22,5 +22,17 @@ class User(Base):
     referral_rewarded_at = Column(DateTime, nullable=True)
     # 응모 상품으로 전환된 뒤 모금 때 산 응모권을 취소한 사람 — 이 시각까지 상점 전환 응모권을 살 수 없다
     funding_banned_until = Column(DateTime, nullable=True)
+    # 가입 동의 기록 (동의 받았다는 증거) — 필수 동의는 가입 시각, 후기 홍보(선택)는 동의·철회 시각
+    terms_agreed_at               = Column(DateTime, nullable=True)
+    age_14_confirmed_at           = Column(DateTime, nullable=True)
+    review_marketing_agreed_at    = Column(DateTime, nullable=True)   # 지금 동의 중이면 값이 있다
+    review_marketing_withdrawn_at = Column(DateTime, nullable=True)   # 마지막으로 철회한 시각
+    # 회원 탈퇴 시각 — 탈퇴하면 이 행의 개인정보는 지우고(가명 처리) 결제·배송 기록과의 연결만 남긴다
+    deleted_at        = Column(DateTime, nullable=True)
     created_at        = Column(DateTime, server_default=func.now())
     updated_at        = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    # 후기 홍보 활용에 지금 동의 중인지 (UserResponse에서 쓴다)
+    @property
+    def review_marketing_agreed(self) -> bool:
+        return self.review_marketing_agreed_at is not None

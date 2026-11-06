@@ -8,6 +8,10 @@ class UserSignup(BaseModel):
     password: str
     identity_verification_id: str     # 포트원 본인인증 ID (이름·전화번호·인증시간은 서버가 포트원에서 직접 조회)
     referral_code: Optional[str] = None   # 추천인 코드 (선택)
+    # 가입 동의 — 필수 둘은 true여야 가입된다. 동의 시각은 서버가 기록한다
+    terms_agreed: bool = False             # (필수) 이용약관 동의
+    age_14_confirmed: bool = False         # (필수) 만 14세 이상 확인
+    review_marketing_agreed: bool = False  # (선택) 후기 SNS·홈페이지 홍보 활용 동의
 
 
 class IdentityVerifyRequest(BaseModel):   # 본인인증 결과 확인 요청
@@ -16,6 +20,14 @@ class IdentityVerifyRequest(BaseModel):   # 본인인증 결과 확인 요청
 class IdentityVerifyResponse(BaseModel):  # 본인인증 결과 (가입 폼에 보여줄 값)
     name: Optional[str] = None
     phone: str
+
+
+class WithdrawRequest(BaseModel):         # 회원 탈퇴 요청 (본인 확인용 비밀번호)
+    password: str
+
+
+class ReviewMarketingConsentRequest(BaseModel):   # 후기 홍보 활용 동의·철회
+    agreed: bool
 
 
 class PasswordChangeRequest(BaseModel):   # 비밀번호 변경 요청 (마이페이지 설정)
@@ -49,6 +61,7 @@ class UserResponse(BaseModel):
     avatar_url: Optional[str] = None
     avatar_config: Optional[dict] = None
     trade_count: int
+    review_marketing_agreed: bool = False   # 후기 SNS·홈페이지 홍보 활용에 지금 동의 중인지
 
     class Config:
         from_attributes = True

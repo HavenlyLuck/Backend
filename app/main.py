@@ -7,11 +7,14 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.database import SessionLocal
 from app.crud import raffle as raffle_crud
 from app.crud import payment as payment_crud
+from app.crud import withdrawal as withdrawal_crud
 from app.routers import user, admin, raffle, point, store, storage, address, avatar_item, notice, kuji, payment, inventory, finance, review, inquiry, referral
 
 SETTLE_INTERVAL_SECONDS = 5
 # 결제 정리(결제 후 창을 닫은 주문 지급, 카드 취소 재시도)는 포트원 API를 부르므로 더 드물게
 PAYMENT_SETTLE_EVERY = 6   # SETTLE_INTERVAL_SECONDS × 6 = 30초마다
+# 탈퇴 회원의 보존 기간 지난 정보 파기 — 하루 단위 기한이라 1시간마다면 충분하다
+PRIVACY_PURGE_EVERY = 720  # SETTLE_INTERVAL_SECONDS × 720 = 1시간마다
 
 
 def settle_raffles_once():
@@ -26,6 +29,14 @@ def settle_payments_once():
     db = SessionLocal()
     try:
         payment_crud.settle_payments(db)
+    finally:
+        db.close()
+
+
+def purge_withdrawn_once():
+    db = SessionLocal()
+    try:
+        withdrawal_crud.purge_expired(db)
     finally:
         db.close()
 
@@ -45,6 +56,11 @@ async def settle_loop():
                 await asyncio.to_thread(settle_payments_once)
             except Exception:
                 logging.exception("payment settle failed")
+        if tick % PRIVACY_PURGE_EVERY == 0:
+            try:
+                await asyncio.to_thread(purge_withdrawn_once)
+            except Exception:
+                logging.exception("privacy purge failed")
         tick += 1
         await asyncio.sleep(SETTLE_INTERVAL_SECONDS)
 

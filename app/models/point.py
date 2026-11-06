@@ -18,7 +18,7 @@ class PointTransaction(Base):
     user_id        = Column(Integer, ForeignKey("users.user_id"), nullable=False)
     amount         = Column(Integer, nullable=False)   # 지급 +, 차감 -
     balance_after  = Column(Integer, nullable=False)   # 거래 직후 잔액 스냅샷
-    reason         = Column(Enum("store_purchase", "admin_grant", "raffle_consolation", "avatar_purchase", name="point_transaction_reason"), nullable=False)   # raffle_consolation: 낙첨 보상, avatar_purchase: 아바타 아이템 구매
+    reason         = Column(Enum("store_purchase", "admin_grant", "raffle_consolation", "avatar_purchase", "withdrawal", name="point_transaction_reason"), nullable=False)   # raffle_consolation: 낙첨 보상, avatar_purchase: 아바타 아이템 구매, withdrawal: 회원 탈퇴로 소멸
     reference_id   = Column(Integer, nullable=True)   # 연관 엔티티 id (예: raffle_products.raffle_product_id)
     description    = Column(String(255), nullable=True)
     created_at     = Column(DateTime, server_default=func.now())
