@@ -1,10 +1,10 @@
 # app/routers/inquiry.py — 문의 (비공개 문의는 쓴 사람과 관리자만 내용을 본다)
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_current_admin, get_current_user, get_optional_user
+from app.core.dependencies import get_current_admin, get_current_user, get_optional_user, log_admin_access
 from app.crud import review as review_crud
 from app.database import get_db
 from app.models.user import User
@@ -15,7 +15,10 @@ router = APIRouter()
 
 # 문의 목록 (누구나) — 최신순
 @router.get("", response_model=list[InquiryResponse])
-def list_inquiries(db: Session = Depends(get_db), viewer: Optional[User] = Depends(get_optional_user)):
+def list_inquiries(request: Request, db: Session = Depends(get_db), viewer: Optional[User] = Depends(get_optional_user)):
+    # 관리자에게는 남의 비공개 문의 내용까지 보이므로 접속기록을 남긴다
+    if viewer is not None and viewer.is_admin:
+        log_admin_access(viewer, request)
     return review_crud.get_inquiries(db, viewer)
 
 

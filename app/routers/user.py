@@ -1,4 +1,5 @@
 import re
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import HTTPBearer
@@ -11,14 +12,17 @@ from app.schemas.user import (
     UserSignup, UserLogin, UserResponse, TokenResponse,
     RefreshRequest, RefreshResponse, DuplCheckRequest, DuplCheckResponse,
     IdentityVerifyRequest, IdentityVerifyResponse, PasswordChangeRequest,
+    WithdrawRequest, ReviewMarketingConsentRequest,
 )
 from app.core.security import hash_password, verify_password, create_token, decode_token
 from app.core.dependencies import get_current_user
 from app.crud import referral as referral_crud
+from app.crud import withdrawal as withdrawal_crud
 from app.schemas.avatar import AvatarConfig
 from app.core.avatar_items import AVATAR_ITEM_SLOTS, OVERLAY_SLOTS, find_item_id
 from app.crud import avatar_item as avatar_item_crud
 from app.services.portone import get_verified_identity, PortOneError
+from app.services.cloudinary import delete_image
 
 router = APIRouter()
 
@@ -62,12 +66,62 @@ def change_my_password(body: PasswordChangeRequest, user: User = Depends(get_cur
     user.password = hash_password(body.new_password)
     db.commit()
 
-# 포트원 본인인증 결과를 조회해서, 인증이 안 됐거나 이미 가입된 번호면 400
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+# 후기 SNS·홈페이지 홍보 활용 동의·철회 (선택 동의라 언제든 바꿀 수 있다)
+@router.put("/me/review-marketing", response_model=UserResponse)
+def set_review_marketing_consent(body: ReviewMarketingConsentRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    now = _utcnow()
+    if body.agreed and user.review_marketing_agreed_at is None:
+        user.review_marketing_agreed_at = now
+    elif not body.agreed and user.review_marketing_agreed_at is not None:
+        user.review_marketing_agreed_at = None
+        user.review_marketing_withdrawn_at = now
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+# 회원 탈퇴 — 비밀번호로 본인 확인 후 개인정보 삭제 (법정 보존 정보는 분리 보관, app/crud/withdrawal.py)
+@router.delete("/me", status_code=204)
+def withdraw_me(body: WithdrawRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if not verify_password(body.password, user.password):
+        raise HTTPException(status_code=400, detail="비밀번호가 올바르지 않습니다")
+    user_id = user.user_id
+    db.rollback()   # 위 조회의 트랜잭션을 끝내고, 탈퇴 처리에서 회원 행을 잠그고 다시 읽는다
+    try:
+        review_images = withdrawal_crud.withdraw(db, user_id)
+    except withdrawal_crud.WithdrawalError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    for url in review_images:
+        delete_image(url)
+
+MIN_SIGNUP_AGE = 14
+
+
+# 오늘(한국 날짜) 기준 만 나이
+def _korean_age(birth: date) -> int:
+    today = (datetime.now(timezone.utc) + timedelta(hours=9)).date()
+    return today.year - birth.year - ((today.month, today.day) < (birth.month, birth.day))
+
+
+# 포트원 본인인증 결과를 조회해서, 인증이 안 됐거나 이미 가입된 번호거나 만 14세 미만이면 400
 def _verify_identity(identity_verification_id: str, db: Session) -> dict:
     try:
         identity = get_verified_identity(identity_verification_id)
     except PortOneError as e:
         raise HTTPException(status_code=400, detail=str(e))
+    # 만 14세 미만은 법정대리인 동의 절차가 없어 가입을 받지 않는다 (이용약관 제4조)
+    # 생년월일은 이 확인에만 쓰고 저장하지 않는다
+    birth = identity.get("birth_date")
+    if birth is None:
+        raise HTTPException(status_code=400, detail="본인인증 결과에서 생년월일을 확인하지 못했습니다. 다시 인증해주세요")
+    if _korean_age(birth) < MIN_SIGNUP_AGE:
+        raise HTTPException(status_code=400, detail="만 14세 미만은 가입할 수 없습니다")
     if db.query(User).filter(User.phone == identity["phone"]).first():
         raise HTTPException(status_code=400, detail="이미 가입된 휴대폰 번호입니다")
     return identity
@@ -86,6 +140,14 @@ def verify_identity(body: IdentityVerifyRequest, db: Session = Depends(get_db)):
 # 회원가입
 @router.post("/signup", response_model=UserResponse)
 def signup(body: UserSignup, db: Session = Depends(get_db)):
+    # 필수 동의
+    if not body.terms_agreed:
+        raise HTTPException(status_code=400, detail="이용약관에 동의해야 가입할 수 있습니다")
+    if not body.age_14_confirmed:
+        raise HTTPException(status_code=400, detail="만 14세 이상만 가입할 수 있습니다")
+    # 탈퇴 회원 가명 값(app/crud/withdrawal.py)과 겹치지 않게 이 글자는 못 쓴다
+    if withdrawal_crud.WITHDRAWN_MARK in body.login_id or withdrawal_crud.WITHDRAWN_MARK in body.nickname:
+        raise HTTPException(status_code=400, detail=f"아이디와 닉네임에는 '{withdrawal_crud.WITHDRAWN_MARK}' 문자를 쓸 수 없습니다")
     # 중복 확인
     if db.query(User).filter(User.login_id == body.login_id).first():
         raise HTTPException(status_code=400, detail="이미 사용중인 아이디입니다")
@@ -102,6 +164,7 @@ def signup(body: UserSignup, db: Session = Depends(get_db)):
         except referral_crud.ReferralError as e:
             raise HTTPException(status_code=400, detail=str(e))
 
+    now = _utcnow()
     user = User(
         login_id=body.login_id,
         nickname=body.nickname,
@@ -112,6 +175,9 @@ def signup(body: UserSignup, db: Session = Depends(get_db)):
         phone_verified_at=identity["verified_at"],
         referral_code=referral_crud.new_referral_code(db),
         referred_by_user_id=referrer.user_id if referrer else None,
+        terms_agreed_at=now,
+        age_14_confirmed_at=now,
+        review_marketing_agreed_at=now if body.review_marketing_agreed else None,
     )
     db.add(user)
     db.commit()
@@ -123,7 +189,7 @@ def signup(body: UserSignup, db: Session = Depends(get_db)):
 @router.post("/login", response_model=TokenResponse)
 def login(body: UserLogin, db: Session = Depends(get_db)):
     # DB에서 유저 찾기
-    user = db.query(User).filter(User.login_id == body.login_id).first()
+    user = db.query(User).filter(User.login_id == body.login_id, User.deleted_at.is_(None)).first()
 
     # 유저 없거나 비밀번호 틀리면 에러
     if not user or not verify_password(body.password, user.password):
@@ -159,7 +225,7 @@ def refresh(body: RefreshRequest, db: Session = Depends(get_db)):
     if payload.get("type") != "refresh":
         raise HTTPException(status_code=401, detail="유효하지 않은 리프레시 토큰입니다")
 
-    user = db.query(User).filter(User.user_id == user_id).first()
+    user = db.query(User).filter(User.user_id == user_id, User.deleted_at.is_(None)).first()
     if not user:
         raise HTTPException(status_code=401, detail="사용자를 찾을 수 없습니다")
 

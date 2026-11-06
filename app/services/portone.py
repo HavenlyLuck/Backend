@@ -5,7 +5,7 @@ import re
 import urllib.error
 import urllib.parse
 import urllib.request
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
 
 from app.core.config import settings
@@ -68,7 +68,8 @@ def _quote(value: str) -> str:
 
 
 def get_verified_identity(identity_verification_id: str) -> dict:
-    """인증이 완료된 본인인증이면 {name, phone, verified_at, ci, di} 를 돌려주고, 아니면 PortOneError"""
+    """인증이 완료된 본인인증이면 {name, phone, birth_date, verified_at, ci, di} 를 돌려주고, 아니면 PortOneError
+    birth_date는 만 14세 확인에만 쓰고 저장하지 않는다 (포트원이 안 주면 None)"""
     try:
         data = _call("GET", f"/identity-verifications/{_quote(identity_verification_id)}")
     except PortOneNotFound:
@@ -88,9 +89,17 @@ def get_verified_identity(identity_verification_id: str) -> dict:
     if datetime.now(timezone.utc).replace(tzinfo=None) - verified_at > timedelta(minutes=VERIFICATION_VALID_MINUTES):
         raise PortOneError("본인인증 유효시간이 지났습니다. 다시 인증해주세요")
 
+    birth_date = None
+    if customer.get("birthDate"):
+        try:
+            birth_date = date.fromisoformat(customer["birthDate"][:10])   # "YYYY-MM-DD"
+        except ValueError:
+            birth_date = None
+
     return {
         "name": customer.get("name"),
         "phone": phone,
+        "birth_date": birth_date,
         "verified_at": verified_at,
         "ci": customer.get("ci"),
         "di": customer.get("di"),

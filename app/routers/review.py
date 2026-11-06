@@ -1,15 +1,15 @@
 # app/routers/review.py — 후기 (받은 상품에만 1개씩)
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_current_user, get_optional_user
+from app.core.dependencies import get_current_user, get_optional_user, log_admin_access
 from app.crud import review as review_crud
 from app.database import get_db
 from app.models.user import User
 from app.schemas.review import ReviewableItem, ReviewResponse
-from app.services.cloudinary import upload_image
+from app.services.cloudinary import upload_image, delete_image
 
 router = APIRouter()
 
@@ -60,10 +60,15 @@ def create_review(
 
 # 후기 삭제 — 쓴 사람 또는 관리자
 @router.delete("/{review_id}", status_code=204)
-def delete_review(review_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+def delete_review(review_id: int, request: Request, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     review = review_crud.get_review(db, review_id)
     if not review:
         raise HTTPException(status_code=404, detail="후기를 찾을 수 없습니다")
-    if review.user_id != user.user_id and not user.is_admin:
-        raise HTTPException(status_code=403, detail="내가 쓴 후기만 지울 수 있어요")
+    if review.user_id != user.user_id:
+        if not user.is_admin:
+            raise HTTPException(status_code=403, detail="내가 쓴 후기만 지울 수 있어요")
+        log_admin_access(user, request)   # 관리자가 남의 후기를 지우면 접속기록을 남긴다
+    image_url = review.image_url
     review_crud.delete_review(db, review)
+    if image_url:
+        delete_image(image_url)   # DB에서 지운 뒤 사진 파일도 지운다
