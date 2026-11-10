@@ -1,5 +1,4 @@
 import logging
-import secrets
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 from datetime import datetime, timedelta, timezone
@@ -17,6 +16,7 @@ from app.crud import storage as storage_crud
 from app.crud import point as point_crud
 from app.crud import inventory as inventory_crud
 from app.services import portone
+from app.services import drand
 from app.crud import referral as referral_crud
 from app.models.free_ticket import FreeTicket
 from app.models.store import StoreProduct
@@ -175,7 +175,7 @@ def fulfill_raffle_entry(
         _convert_funding(product)
     # 이번 구매로 매진됐으면 매진 시각을 남긴다 — 이 시각부터 RAFFLE_DRAW_DELAY_SECONDS 뒤에 자동 추첨
     if sold + ticket_count >= product.total_slots:
-        product.sold_out_at = _utcnow()
+        mark_sold_out(product, _utcnow())
     # 추천인을 등록한 사람의 첫 응모권 구매면 본인·추천인에게 무료 응모권을 1장씩 준다
     referral_crud.grant_first_purchase_reward(db, user_id)
     return entry
@@ -209,7 +209,7 @@ def enter_with_free_tickets(db: Session, raffle_product_id: int, user_id: int, c
         t.raffle_entry_id = entry.entry_id
         t.used_at = now
     if sold + count >= product.total_slots:
-        product.sold_out_at = now
+        mark_sold_out(product, now)
     db.commit()
     db.refresh(entry)
     return entry
@@ -755,13 +755,25 @@ def mark_result_checked(db: Session, raffle_product_id: int, user_id: int) -> bo
 def get_draw_at(product: RaffleProduct) -> Optional[datetime]:
     if product.sold_out_at is None:
         return None
+    # drand 라운드가 정해졌으면 그 라운드가 나오는 시각에 추첨한다 (매진 + 대기 시간 직후 3초 안)
+    if product.drand_round is not None:
+        return drand.round_time(product.drand_round)
     return product.sold_out_at + timedelta(seconds=RAFFLE_DRAW_DELAY_SECONDS)
 
 
-# 응모권 수만큼 가중치를 둔 무작위 추첨 — 응모권 1장 = 당첨 확률 1칸
-def pick_weighted_entry_number(entrants: list[tuple[int, int]]) -> int:
+# 매진 처리 — 매진 시각과 함께 추첨에 쓸 drand 라운드(매진 + 대기 시간 이후 처음 나오는 라운드)를 정해 둔다.
+# 매진 뒤에는 응모 취소가 막혀 응모자 명단이 고정되므로, 명단이 확정된 다음에야 나오는 난수로 추첨하게 된다
+def mark_sold_out(product: RaffleProduct, now: datetime) -> None:
+    product.sold_out_at = now
+    product.drand_round = drand.round_at(now + timedelta(seconds=RAFFLE_DRAW_DELAY_SECONDS))
+
+
+# 응모권 수만큼 가중치를 둔 추첨 — 응모권 1장 = 당첨 칸 1개.
+# 응모 번호 오름차순으로 칸을 이어 붙이고, (drand 난수 mod 전체 응모권 수)번째 칸의 주인이 당첨된다
+def pick_weighted_entry_number(entrants: list[tuple[int, int]], randomness_hex: str) -> int:
+    entrants = sorted(entrants)
     total = sum(tickets for _, tickets in entrants)
-    r = secrets.randbelow(total)
+    r = drand.pick_index(randomness_hex, total)
     for entry_number, tickets in entrants:
         if r < tickets:
             return entry_number
@@ -769,9 +781,10 @@ def pick_weighted_entry_number(entrants: list[tuple[int, int]]) -> int:
     return entrants[-1][0]
 
 
-# 매진된 지 RAFFLE_DRAW_DELAY_SECONDS가 지난 상품을 자동으로 추첨한다 (서버 주기 작업에서 실행).
+# 매진된 지 RAFFLE_DRAW_DELAY_SECONDS가 지난 상품을 정해 둔 drand 라운드 값으로 추첨한다 (서버 주기 작업에서 실행).
 # 평소에는 "추첨할 때가 된 매진 상품"을 쿼리 한 번으로 고르고 끝나며, 해당 상품이 있을 때만 그 행을 잠근다.
-# 잠근 뒤 "아직 당첨자 없음"을 다시 확인하고 확정하므로 동시에 여러 번 불려도 한 번만 추첨된다.
+# drand 조회(네트워크) 동안에는 잠금을 풀어 두고, 다시 잠근 뒤 "아직 당첨자 없음"을 확인하고 확정하므로
+# 동시에 여러 번 불려도 한 번만 추첨된다. 라운드 값을 아직 못 받으면 다음 주기에 다시 시도한다.
 def run_due_draws(db: Session) -> None:
     now = _utcnow()
     due_before = now - timedelta(seconds=RAFFLE_DRAW_DELAY_SECONDS)
@@ -794,18 +807,40 @@ def run_due_draws(db: Session) -> None:
             continue
         # 매진 시각이 기록되기 전에 매진된 상품은 처음 발견한 지금부터 대기 시간을 센다
         if product.sold_out_at is None:
-            product.sold_out_at = now
+            mark_sold_out(product, now)
+            db.commit()
+            continue
+        # drand 도입 전에 매진된 상품 — 매진 뒤에는 명단이 바뀌지 않으므로 추첨 시각 기준으로 라운드를 정한다
+        if product.drand_round is None:
+            product.drand_round = drand.round_at(get_draw_at(product))
             db.commit()
             continue
         if get_draw_at(product) > now:
             db.rollback()
             continue
+        round_number = product.drand_round
+        db.rollback()
 
+        try:
+            beacon = drand.fetch_beacon(round_number)
+        except drand.DrandUnavailable as e:
+            logging.warning("raffle %s draw waiting for drand: %s", pid, e)
+            continue
+
+        product = get_raffle_product_for_update(db, pid)
+        if (
+            product is None or product.status != "open" or product.winner_entry_number is not None
+            or product.drand_round != round_number
+        ):
+            db.rollback()
+            continue
         entrants = get_entrants(db, pid)
         if not entrants:
             db.rollback()
             continue
-        winner_entry_number = pick_weighted_entry_number(entrants)
+        product.drand_randomness = beacon["randomness"]
+        product.drand_signature = beacon["signature"]
+        winner_entry_number = pick_weighted_entry_number(entrants, beacon["randomness"])
         winner_user_id = get_user_id_by_entry_number(db, pid, winner_entry_number)
         save_draw_result(db, product, winner_entry_number=winner_entry_number, winner_user_id=winner_user_id)
 

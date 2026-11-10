@@ -19,6 +19,10 @@ class RaffleProductResponse(BaseModel):
     winner_entry_number: Optional[int] = None
     winner_user_id: Optional[int] = None
     draw_video_url: Optional[str] = None
+    # drand 공개 난수 추첨 정보 — 라운드는 매진 순간 정해지고, 난수·서명은 추첨 뒤에 채워진다
+    drand_round: Optional[int] = None
+    drand_randomness: Optional[str] = None
+    drand_signature: Optional[str] = None
     funding_store_product_id: Optional[int] = None   # 상점 상품에서 전환 모금으로 만들어진 응모면 그 상점 상품
     converted_at: Optional[datetime] = None          # 응모 상품으로 전환된 시각
 
@@ -106,6 +110,8 @@ class RaffleDrawCastResponse(BaseModel):
     sold_out_at: Optional[datetime] = None
     draw_at: Optional[datetime] = None            # 자동 추첨 예정 시각
     winner_entry_number: Optional[int] = None     # 추첨 전에는 None
+    drand_round: Optional[int] = None             # 추첨에 쓸 drand 라운드 (매진 순간 정해짐)
+    drand_randomness: Optional[str] = None        # 추첨 전에는 None
     cast: list[RaffleCastMember]
 
 
