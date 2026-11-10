@@ -13,3 +13,4 @@ from app.models.payment import Payment
 from app.models.free_ticket import FreeTicket
 from app.models.inventory import InventoryItem, InventoryReceipt, InventoryLink, Expense
 from app.models.privacy import WithdrawnUser, AdminAccessLog
+from app.models.wishlist import WishlistItem
