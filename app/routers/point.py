@@ -6,13 +6,14 @@ from app.database import get_db
 from app.core.dependencies import get_current_user
 from app.models.user import User
 from app.models.point import PointWallet
+from app.models.free_ticket import FreeTicket
 from app.schemas.point import PointWalletResponse, PointTransactionResponse
 from app.crud import point as point_crud
 
 router = APIRouter()
 
 
-# 내 쌀포인트 조회 (지갑이 없으면 0P로 생성)
+# 내 쌀포인트와 쌀 응모권 수 조회 (지갑이 없으면 0P로 생성)
 @router.get("/me", response_model=PointWalletResponse)
 def get_my_points(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     wallet = db.query(PointWallet).filter(PointWallet.user_id == user.user_id).first()
@@ -21,7 +22,12 @@ def get_my_points(user: User = Depends(get_current_user), db: Session = Depends(
         db.add(wallet)
         db.commit()
         db.refresh(wallet)
-    return wallet
+    ssal_ticket = (
+        db.query(FreeTicket)
+        .filter(FreeTicket.user_id == user.user_id, FreeTicket.raffle_entry_id.is_(None))
+        .count()
+    )
+    return PointWalletResponse(ssal_point=wallet.ssal_point, ssal_ticket=ssal_ticket)
 
 
 # 내 쌀포인트 거래 내역 조회
