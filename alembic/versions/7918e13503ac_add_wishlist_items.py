@@ -2,7 +2,7 @@
 
 - wishlist_items: 회원별로 찜한 일반 상점 상품
 
-Revision ID: e8b3c5d1a7f2
+Revision ID: 7918e13503ac
 Revises: d4a7b2e9f1c3
 Create Date: 2026-11-10 00:00:01.000000
 
@@ -14,7 +14,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'e8b3c5d1a7f2'
+revision: str = '7918e13503ac'
 down_revision: Union[str, Sequence[str], None] = 'd4a7b2e9f1c3'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
