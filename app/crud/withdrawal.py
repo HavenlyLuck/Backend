@@ -27,6 +27,7 @@ from app.models.raffle import RaffleProduct, RaffleEntry
 from app.models.review import Review
 from app.models.storage import StorageItem
 from app.models.user import User
+from app.models.wishlist import WishlistItem
 
 # 전자상거래법 시행령 제6조 — 계약·결제·공급 기록 5년, 불만·분쟁 기록 3년
 CONTRACT_RETENTION = timedelta(days=365 * 5 + 1)
@@ -151,6 +152,7 @@ def withdraw(db: Session, user_id: int) -> list[str]:
 
     # 5) 아바타 아이템
     db.query(UserAvatarItem).filter(UserAvatarItem.user_id == uid).delete(synchronize_session=False)
+    db.query(WishlistItem).filter(WishlistItem.user_id == uid).delete(synchronize_session=False)
 
     # 6) 회원 행의 개인정보를 지우고 가명 값으로 바꾼다 (UNIQUE 컬럼은 회원번호로 겹치지 않게)
     user.login_id = f"{WITHDRAWN_MARK}withdrawn{uid}"
