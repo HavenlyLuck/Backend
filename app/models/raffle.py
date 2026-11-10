@@ -20,6 +20,10 @@ class RaffleProduct(Base):
     drawn_at             = Column(DateTime, nullable=True)
     winner_entry_number  = Column(Integer, nullable=True)     # 추첨으로 뽑힌 응모 번호
     winner_user_id       = Column(Integer, ForeignKey("users.user_id"), nullable=True)
+    # drand 공개 난수 추첨 (app/services/drand.py) — 매진 순간 추첨 시각 이후의 라운드를 정해 두고, 그 값으로 추첨한다
+    drand_round          = Column(Integer, nullable=True)
+    drand_randomness     = Column(String(64), nullable=True)    # 그 라운드의 난수(hex)
+    drand_signature      = Column(String(192), nullable=True)   # 라운드 서명(hex) — randomness = sha256(signature)
     draw_video_url       = Column(String(500), nullable=True)  # (예전 수동 추첨의 룰렛 녹화 영상 — 자동 추첨부터는 비어 있음)
     # 상점 상품에서 전환 모금으로 만들어진 응모 — 재고 1개를 묶어 두고, 응모가 취소되면 상점으로 돌려준다
     funding_store_product_id = Column(Integer, ForeignKey("store_products.store_product_id"), nullable=True, index=True)

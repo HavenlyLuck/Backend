@@ -215,5 +215,7 @@ def get_raffle_draw_cast(
         "sold_out_at": product.sold_out_at,
         "draw_at": raffle_crud.get_draw_at(product),
         "winner_entry_number": product.winner_entry_number,
+        "drand_round": product.drand_round,
+        "drand_randomness": product.drand_randomness,
         "cast": raffle_crud.get_draw_cast(db, raffle_product_id),
     }
