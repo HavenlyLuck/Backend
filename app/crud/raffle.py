@@ -20,6 +20,7 @@ from app.services import drand
 from app.crud import referral as referral_crud
 from app.models.free_ticket import FreeTicket
 from app.models.store import StoreProduct
+from app.models.wishlist import WishlistItem
 
 
 def create_raffle_product(
@@ -320,6 +321,10 @@ def _cancel_raffle(db: Session, product: RaffleProduct, reason: str) -> list[str
         )
         if store_product:
             store_product.stock += 1
+        # 응모 상품이 상점으로 돌아갔으니 이 응모를 찜한 기록도 지운다
+        db.query(WishlistItem).filter(WishlistItem.raffle_product_id == product.raffle_product_id).delete(
+            synchronize_session=False,
+        )
     # 무료 응모권으로 응모한 것은 보관함으로 돌려준다
     entry_ids = [eid for (eid,) in db.query(RaffleEntry.entry_id).filter(RaffleEntry.raffle_product_id == product.raffle_product_id)]
     if entry_ids:
