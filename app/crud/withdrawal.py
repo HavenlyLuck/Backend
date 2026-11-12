@@ -160,6 +160,7 @@ def withdraw(db: Session, user_id: int) -> list[str]:
     user.email = f"withdrawn{uid}@withdrawn.invalid"
     user.phone = f"{WITHDRAWN_MARK}{uid}"
     user.name = None
+    user.ci = None
     user.password = hash_password(secrets.token_urlsafe(32))   # 아무도 모르는 비밀번호 — 로그인 불가
     user.avatar_url = None
     user.avatar_config = None

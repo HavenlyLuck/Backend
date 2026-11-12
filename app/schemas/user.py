@@ -1,3 +1,4 @@
+from datetime import datetime
 from pydantic import BaseModel, EmailStr
 from typing import Literal, Optional
 
@@ -73,3 +74,20 @@ class DuplCheckRequest(BaseModel):
 class DuplCheckResponse(BaseModel):
     available: bool   # True = 사용가능, False = 중복
     message: str
+
+
+class FindIdRequest(BaseModel):            # 아이디 찾기 (본인인증만으로)
+    identity_verification_id: str
+
+class FindIdResponse(BaseModel):
+    login_id: str
+    joined_at: Optional[datetime] = None   # 가입일 (내 계정이 맞는지 확인용)
+
+class PasswordResetCheckRequest(BaseModel):   # 비밀번호 찾기 1단계: 아이디와 본인인증한 사람이 같은지
+    login_id: str
+    identity_verification_id: str
+
+class PasswordResetRequest(BaseModel):        # 비밀번호 찾기 2단계: 새 비밀번호 설정
+    login_id: str
+    identity_verification_id: str
+    new_password: str

@@ -12,6 +12,8 @@ class User(Base):
     name              = Column(String(50), nullable=True)    # 본인인증 실명 (결제창 구매자 이름). 예전 가입자는 비어 있음
     phone             = Column(String(20), unique=True, nullable=False)
     phone_verified_at = Column(DateTime, nullable=False)
+    # 본인인증 CI — 사람마다 하나뿐이고 번호를 바꿔도 그대로라, 아이디·비밀번호 찾기에서 본인 확인에 쓴다. 예전 가입자는 비어 있음
+    ci                = Column(String(100), unique=True, nullable=True)
     avatar_url        = Column(String(500), nullable=True)
     avatar_config     = Column(JSON, nullable=True)   # 픽셀 캐릭터 커스터마이징 (app/schemas/avatar.py)
     trade_count       = Column(Integer, default=0)
@@ -36,3 +38,11 @@ class User(Base):
     @property
     def review_marketing_agreed(self) -> bool:
         return self.review_marketing_agreed_at is not None
+
+
+class UsedIdentityVerification(Base):
+    """한 번 쓴 본인인증 ID — 같은 인증으로 비밀번호를 두 번 바꾸지 못하게 기록한다"""
+    __tablename__ = "used_identity_verifications"
+    identity_verification_id = Column(String(64), primary_key=True)
+    purpose                  = Column(String(30), nullable=False)   # password_reset
+    used_at                  = Column(DateTime, server_default=func.now(), nullable=False)
