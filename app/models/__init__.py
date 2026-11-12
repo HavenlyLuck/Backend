@@ -1,4 +1,4 @@
-from app.models.user import User
+from app.models.user import User, UsedIdentityVerification
 from app.models.point import PointWallet, PointTransaction
 from app.models.raffle import RaffleProduct, RaffleEntry
 from app.models.store import StoreProduct
