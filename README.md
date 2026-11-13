@@ -198,5 +198,5 @@ alembic heads                 # head가 하나인지 확인 (둘 이상이면 do
 - **시간:** DB에는 UTC를 시간대 정보 없이(naive) 저장합니다. 한국 날짜가 필요한 곳(정산, 만 나이 계산)만 +9시간으로 바꿉니다.
 - **동시성:** 재고, 응모권 수, 잔액처럼 동시에 바뀔 수 있는 값은 `with_for_update()`로 행을 잠근 뒤 다시 읽고 바꿉니다. 그래서 DB 격리 수준을 READ COMMITTED로 둡니다.
 - **결제 금액:** 금액은 항상 서버가 정하고, 지급 전에 포트원 결제 금액과 비교합니다. 클라이언트가 보낸 금액·이름·전화번호는 믿지 않습니다.
-- **아바타 아이템:** [app/core/avatar_items.py](app/core/avatar_items.py)의 id·slot·index는 프론트 `lib/avatar/shopItems.ts`와 반드시 같아야 합니다.
+- **아바타 아이템:** [app/core/avatar_items.py](app/core/avatar_items.py)의 id·slot과 머리 모양은 프론트 `lib/avatar/shopItems.ts`와 반드시 같아야 합니다 (아바타 v3).
 - **주석:** 코드 주석은 한국어로, 왜 그렇게 하는지 위주로 씁니다.

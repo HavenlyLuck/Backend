@@ -1,24 +1,71 @@
-from typing import Optional
-
-# 쌀포인트 상점 "아바타" 탭에서 파는 아이템 목록.
-# 픽셀 파츠가 프론트 코드(lib/avatar/parts.ts)에 그려져 있어서 DB가 아니라 여기서 관리하며,
-# 프론트 lib/avatar/shopItems.ts와 id·slot·index를 반드시 맞춰야 한다. 가격은 이 값이 기준.
+# 쌀포인트 상점 "아바타" 탭에서 파는 아이템 목록 (아바타 v3).
+# 그림이 프론트 코드(lib/avatar/hd.ts)에 있어서 DB가 아니라 여기서 관리하며,
+# 프론트 lib/avatar/shopItems.ts와 id·slot을 반드시 맞춰야 한다. 가격은 이 값이 기준.
 AVATAR_ITEMS: dict[str, dict] = {
-    "flame-cutlass": {"name": "불칼", "price": 3000, "slot": "weapon", "index": 0},
-    "santa-hat": {"name": "산타 모자", "price": 2000, "slot": "hat", "index": 0},
-    "red-cape": {"name": "빨간 망토", "price": 2500, "slot": "cape", "index": 0},
-    # 전체 스킨 — 몸 전체를 바꾸므로 무기·모자·망토와 같이 착용할 수 없다
-    "nanami-skin": {"name": "나나미 스킨", "price": 5000, "slot": "costume", "index": 0},
-    "warwick-skin": {"name": "워윅 스킨", "price": 5000, "slot": "costume", "index": 1},
+    "outfit-jacket": {"name": "가죽 재킷 세트", "price": 3000, "slot": "top"},   # 하의·신발까지 한 그림이라 상의 칸
+    "hat-cap": {"name": "갈색 캡모자", "price": 2000, "slot": "hat"},
+    "held-flowers": {"name": "빨간 꽃다발", "price": 1500, "slot": "held"},
+    "face-smile": {"name": "해맑은 미소", "price": 1000, "slot": "face"},
+    "tattoo-star": {"name": "별빛 볼 문신", "price": 800, "slot": "tattoo"},
+    "top-cat-hoodie": {"name": "냥냥 후드티", "price": 2500, "slot": "top"},
+    "bottom-check-skirt": {"name": "체크 스커트", "price": 2000, "slot": "bottom"},
+    "hat-bunny": {"name": "토끼 귀 머리띠", "price": 2000, "slot": "hat"},
+    "hat-crown": {"name": "반짝 왕관", "price": 3500, "slot": "hat"},
+    "hat-cat-headphones": {"name": "냥냥 헤드폰", "price": 2500, "slot": "hat"},
+    "hat-sprout": {"name": "새싹 머리핀", "price": 1000, "slot": "hat"},
+    "shoes-sneakers": {"name": "흰 운동화", "price": 1500, "slot": "shoes"},
+    "held-star-wand": {"name": "별 요술봉", "price": 2000, "slot": "held"},
+    "held-milktea": {"name": "밀크티 한 잔", "price": 1200, "slot": "held"},
+    "held-balloon": {"name": "하트 풍선", "price": 1200, "slot": "held"},
+    "bg-night": {"name": "달빛 밤하늘", "price": 3000, "slot": "background"},
+    "bg-stage": {"name": "스포트라이트 무대", "price": 3000, "slot": "background"},
+    "bg-park": {"name": "햇살 공원", "price": 2000, "slot": "background"},
+    "bg-lucky": {"name": "천운 행운방", "price": 3000, "slot": "background"},
+    "hair-pink-buns": {"name": "벚꽃 핑크 똥머리", "price": 2000, "slot": "hairItem"},
+    "hair-blonde-short": {"name": "햇살 금발 단발", "price": 2000, "slot": "hairItem"},
+    "hair-mint-buns": {"name": "민트 똥머리", "price": 2000, "slot": "hairItem"},
+    "hair-twoblock": {"name": "깔끔한 투블럭", "price": 2500, "slot": "hairItem"},
+    "hair-spiky": {"name": "삐죽삐죽 머리", "price": 2000, "slot": "hairItem"},
+    "hair-dandy-part": {"name": "댄디 가르마", "price": 2500, "slot": "hairItem"},
+    "hair-buzz": {"name": "짧은 스포츠머리", "price": 1500, "slot": "hairItem"},
+    "tattoo-sparkle": {"name": "푸른 별빛 타투", "price": 1200, "slot": "tattoo"},
+    "tattoo-dark-flame": {"name": "다크 플레임", "price": 1200, "slot": "tattoo"},
+    "tattoo-heart": {"name": "하트 드리프트", "price": 1200, "slot": "tattoo"},
+    "tattoo-crescent": {"name": "초승달 문신", "price": 1200, "slot": "tattoo"},
+    "tattoo-demon-wing": {"name": "데몬 윙", "price": 1200, "slot": "tattoo"},
+    "tattoo-black-star": {"name": "별 문신", "price": 800, "slot": "tattoo"},
+    "tattoo-teardrop": {"name": "눈물방울", "price": 800, "slot": "tattoo"},
+    "tattoo-x": {"name": "X자 문신", "price": 800, "slot": "tattoo"},
+    "tattoo-paw": {"name": "발바닥 자국", "price": 800, "slot": "tattoo"},
+    "tattoo-bolt": {"name": "번개 문신", "price": 800, "slot": "tattoo"},
+    "top-neko-hoodie": {"name": "네코 후드티", "price": 2500, "slot": "top"},
+    "top-aurora-jumper": {"name": "별하늘 오로라 점퍼", "price": 3000, "slot": "top"},
+    "top-dracula-cape": {"name": "드라큘라 케이프", "price": 3500, "slot": "top"},
+    "top-dino-hoodie": {"name": "공룡 후드티", "price": 3000, "slot": "top"},
+    "top-wizard-robe": {"name": "마법사 로브", "price": 3500, "slot": "top"},
+    "top-blouse": {"name": "베이직 블라우스", "price": 1500, "slot": "top"},
+    "top-school-vest": {"name": "스쿨 니트 조끼", "price": 2000, "slot": "top"},
+    "top-plain-hoodie": {"name": "무지 후드티", "price": 1500, "slot": "top"},
+    "top-knit-sweater": {"name": "니트 스웨터", "price": 2000, "slot": "top"},
+    "top-highneck": {"name": "하이넥 티셔츠", "price": 2000, "slot": "top"},
+    "bottom-starry-skirt": {"name": "별하늘 스커트 팬츠", "price": 2500, "slot": "bottom"},
+    "bottom-cat-jogger": {"name": "냥냥 점프팬츠", "price": 2500, "slot": "bottom"},
+    "bottom-academy-skirt": {"name": "마법의 아카데미 팬츠", "price": 3000, "slot": "bottom"},
+    "bottom-cloud-pants": {"name": "구름솜 트레이닝 팬츠", "price": 2500, "slot": "bottom"},
+    "bottom-cherry-skirt": {"name": "체리 블룸 스커트팬츠", "price": 2500, "slot": "bottom"},
+    "bottom-denim-shorts": {"name": "데님 쇼츠", "price": 1500, "slot": "bottom"},
+    "bottom-red-pleats": {"name": "체크 플리츠 스커트", "price": 2000, "slot": "bottom"},
+    "bottom-track-shorts": {"name": "트레이닝 반바지", "price": 1500, "slot": "bottom"},
+    "bottom-cargo-pants": {"name": "카고 팬츠", "price": 2000, "slot": "bottom"},
+    "bottom-wide-denim": {"name": "와이드 데님 팬츠", "price": 2000, "slot": "bottom"},
+    # 머리카락·얼굴을 통째로 바꾸는 머리
+    "hair-cone-head": {"name": "뾰족 원뿔 머리", "price": 3000, "slot": "hairItem"},
+    "hair-monster": {"name": "초록 괴물 머리", "price": 3500, "slot": "hairItem"},
+    "hair-alien": {"name": "외계인 머리", "price": 3500, "slot": "hairItem"},
+    "hair-dino": {"name": "으르렁 공룡 머리", "price": 3500, "slot": "hairItem"},
 }
 
-# 겹쳐 끼는 아이템 칸
-OVERLAY_SLOTS = ("weapon", "hat", "cape")
-AVATAR_ITEM_SLOTS = OVERLAY_SLOTS + ("costume",)
+# 착용 칸 — 칸마다 아이템 하나씩 (머리 모양은 무료라 상점 아이템이 아니다). 프론트 shopItems.ts의 WEAR_SLOTS와 같다
+# 머리(상점 머리 — 입으면 무료 머리 모양 대신 그린다)·표정·문신·상의·하의·모자·신발·손·배경
+AVATAR_ITEM_SLOTS = ("hairItem", "face", "tattoo", "top", "bottom", "hat", "shoes", "held", "background")
 
-
-def find_item_id(slot: str, index: int) -> Optional[str]:
-    for item_id, item in AVATAR_ITEMS.items():
-        if item["slot"] == slot and item["index"] == index:
-            return item_id
-    return None
