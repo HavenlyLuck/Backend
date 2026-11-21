@@ -12,7 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from app.schemas.user import (
     UserSignup, UserLogin, UserResponse, TokenResponse,
     RefreshRequest, RefreshResponse, DuplCheckRequest, DuplCheckResponse,
-    IdentityVerifyRequest, IdentityVerifyResponse, PasswordChangeRequest,
+    IdentityVerifyRequest, IdentityVerifyResponse, GuardianVerifyRequest, GuardianVerifyResponse, PasswordChangeRequest,
     WithdrawRequest, ReviewMarketingConsentRequest,
     FindIdRequest, FindIdResponse, PasswordResetCheckRequest, PasswordResetRequest,
 )
@@ -101,6 +101,8 @@ def withdraw_me(body: WithdrawRequest, user: User = Depends(get_current_user), d
         delete_image(url)
 
 MIN_SIGNUP_AGE = 14
+# 만 19세 미만(민법상 미성년자)은 보호자(법정대리인) 본인인증과 동의가 있어야 가입된다
+ADULT_AGE = 19
 
 
 # 오늘(한국 날짜) 기준 만 나이
@@ -127,7 +129,30 @@ def _verify_identity(identity_verification_id: str, db: Session) -> dict:
     # 번호를 바꿔도 같은 사람은 한 계정만 (CI는 사람마다 하나)
     if identity.get("ci") and db.query(User).filter(User.ci == identity["ci"]).first():
         raise HTTPException(status_code=400, detail="이미 가입된 회원입니다. 아이디 찾기를 이용해주세요")
+    identity["guardian_required"] = _korean_age(birth) < ADULT_AGE
     return identity
+
+
+# 보호자(법정대리인) 본인인증 확인 — 만 19세 이상이고 가입자 본인과 다른 사람이어야 한다.
+# 같은 보호자 인증을 다른 가입에 다시 쓰지 못하게 가입 때 사용 기록을 남긴다
+def _verify_guardian(guardian_verification_id: str, minor: dict, minor_verification_id: str, db: Session) -> dict:
+    if guardian_verification_id == minor_verification_id:
+        raise HTTPException(status_code=400, detail="보호자 본인인증은 가입자와 다른 분이 해야 합니다")
+    if db.get(UsedIdentityVerification, guardian_verification_id):
+        raise HTTPException(status_code=400, detail="이미 사용한 보호자 본인인증입니다. 다시 인증해주세요")
+    try:
+        guardian = get_verified_identity(guardian_verification_id)
+    except PortOneError as e:
+        raise HTTPException(status_code=400, detail=f"보호자 {e}")
+    birth = guardian.get("birth_date")
+    if birth is None:
+        raise HTTPException(status_code=400, detail="보호자 본인인증 결과에서 생년월일을 확인하지 못했습니다. 다시 인증해주세요")
+    if _korean_age(birth) < ADULT_AGE:
+        raise HTTPException(status_code=400, detail="보호자는 만 19세 이상이어야 합니다")
+    same_ci = guardian.get("ci") and guardian.get("ci") == minor.get("ci")
+    if same_ci or guardian["phone"] == minor["phone"]:
+        raise HTTPException(status_code=400, detail="보호자 본인인증은 가입자와 다른 분이 해야 합니다")
+    return guardian
 
 # 휴대폰 번호를 숫자만 남겨 저장 형식(01012345678)으로 맞춘다. 형식이 틀리면 None
 def _normalize_phone(value: str) -> Optional[str]:
@@ -138,7 +163,19 @@ def _normalize_phone(value: str) -> Optional[str]:
 @router.post("/identity-verification", response_model=IdentityVerifyResponse)
 def verify_identity(body: IdentityVerifyRequest, db: Session = Depends(get_db)):
     identity = _verify_identity(body.identity_verification_id, db)
-    return IdentityVerifyResponse(name=identity["name"], phone=identity["phone"])
+    return IdentityVerifyResponse(
+        name=identity["name"], phone=identity["phone"], guardian_required=identity["guardian_required"],
+    )
+
+
+# 보호자 본인인증 결과 확인 (가입 폼에 보호자 이름을 보여주기 위함). 가입자 본인인증이 유효해야 한다
+@router.post("/guardian-verification", response_model=GuardianVerifyResponse)
+def verify_guardian(body: GuardianVerifyRequest, db: Session = Depends(get_db)):
+    minor = _verify_identity(body.minor_identity_verification_id, db)
+    if not minor["guardian_required"]:
+        raise HTTPException(status_code=400, detail="만 19세 이상은 보호자 본인인증이 필요 없습니다")
+    guardian = _verify_guardian(body.identity_verification_id, minor, body.minor_identity_verification_id, db)
+    return GuardianVerifyResponse(name=guardian["name"])
 
 # 회원가입
 @router.post("/signup", response_model=UserResponse)
@@ -165,6 +202,14 @@ def signup(body: UserSignup, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="이미 사용중인 이메일입니다")
     # 전화번호·이름은 클라이언트 값을 믿지 않고 포트원에서 인증된 값을 쓴다 (이미 가입된 번호면 400)
     identity = _verify_identity(body.identity_verification_id, db)
+    # 만 19세 미만 — 보호자 본인인증 + 보호자 동의가 있어야 가입된다
+    guardian = None
+    if identity["guardian_required"]:
+        if not body.guardian_identity_verification_id:
+            raise HTTPException(status_code=400, detail="만 19세 미만은 보호자(법정대리인) 본인인증이 필요합니다")
+        if not body.guardian_consent:
+            raise HTTPException(status_code=400, detail="보호자(법정대리인)의 가입 동의가 필요합니다")
+        guardian = _verify_guardian(body.guardian_identity_verification_id, identity, body.identity_verification_id, db)
     referrer = None
     if body.referral_code and body.referral_code.strip():
         try:
@@ -187,9 +232,22 @@ def signup(body: UserSignup, db: Session = Depends(get_db)):
         terms_agreed_at=now,
         age_14_confirmed_at=now,
         review_marketing_agreed_at=now if body.review_marketing_agreed else None,
+        guardian_name=guardian["name"] if guardian else None,
+        guardian_phone=guardian["phone"] if guardian else None,
+        guardian_ci=guardian.get("ci") if guardian else None,
+        guardian_consented_at=now if guardian else None,
     )
     db.add(user)
-    db.commit()
+    if guardian:
+        db.add(UsedIdentityVerification(
+            identity_verification_id=body.guardian_identity_verification_id, purpose="guardian_consent",
+        ))
+    try:
+        db.commit()
+    except IntegrityError:
+        # 같은 보호자 인증으로 동시에 가입한 경우, 또는 같은 아이디·번호로 동시에 가입한 경우
+        db.rollback()
+        raise HTTPException(status_code=400, detail="가입을 처리하지 못했습니다. 다시 시도해주세요")
     db.refresh(user)
     return user
 

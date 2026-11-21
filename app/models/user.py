@@ -27,6 +27,12 @@ class User(Base):
     # 가입 동의 기록 (동의 받았다는 증거) — 필수 동의는 가입 시각, 후기 홍보(선택)는 동의·철회 시각
     terms_agreed_at               = Column(DateTime, nullable=True)
     age_14_confirmed_at           = Column(DateTime, nullable=True)
+    # 만 19세 미만 가입자의 법정대리인(보호자) 동의 기록 — 보호자 본인인증으로 확인한 이름·번호·CI와 동의 시각.
+    # 성인 가입자는 비어 있다
+    guardian_name                 = Column(String(50), nullable=True)
+    guardian_phone                = Column(String(20), nullable=True)
+    guardian_ci                   = Column(String(100), nullable=True)
+    guardian_consented_at         = Column(DateTime, nullable=True)
     review_marketing_agreed_at    = Column(DateTime, nullable=True)   # 지금 동의 중이면 값이 있다
     review_marketing_withdrawn_at = Column(DateTime, nullable=True)   # 마지막으로 철회한 시각
     # 회원 탈퇴 시각 — 탈퇴하면 이 행의 개인정보는 지우고(가명 처리) 결제·배송 기록과의 연결만 남긴다
@@ -44,5 +50,5 @@ class UsedIdentityVerification(Base):
     """한 번 쓴 본인인증 ID — 같은 인증으로 비밀번호를 두 번 바꾸지 못하게 기록한다"""
     __tablename__ = "used_identity_verifications"
     identity_verification_id = Column(String(64), primary_key=True)
-    purpose                  = Column(String(30), nullable=False)   # password_reset
+    purpose                  = Column(String(30), nullable=False)   # password_reset / guardian_consent
     used_at                  = Column(DateTime, server_default=func.now(), nullable=False)
