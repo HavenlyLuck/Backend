@@ -8,6 +8,9 @@ class UserSignup(BaseModel):
     email: EmailStr
     password: str
     identity_verification_id: str     # 포트원 본인인증 ID (이름·전화번호·인증시간은 서버가 포트원에서 직접 조회)
+    # 만 19세 미만이면 필수 — 보호자(법정대리인) 본인인증 ID와 보호자 동의
+    guardian_identity_verification_id: Optional[str] = None
+    guardian_consent: bool = False
     referral_code: Optional[str] = None   # 추천인 코드 (선택)
     # 가입 동의 — 필수 둘은 true여야 가입된다. 동의 시각은 서버가 기록한다
     terms_agreed: bool = False             # (필수) 이용약관 동의
@@ -21,6 +24,16 @@ class IdentityVerifyRequest(BaseModel):   # 본인인증 결과 확인 요청
 class IdentityVerifyResponse(BaseModel):  # 본인인증 결과 (가입 폼에 보여줄 값)
     name: Optional[str] = None
     phone: str
+    guardian_required: bool = False       # 만 19세 미만 — 보호자 본인인증을 해야 가입된다
+
+
+class GuardianVerifyRequest(BaseModel):    # 보호자 본인인증 결과 확인 (가입자 본인인증을 먼저 마쳐야 한다)
+    identity_verification_id: str          # 보호자 본인인증 ID
+    minor_identity_verification_id: str    # 가입자(미성년자) 본인인증 ID
+
+
+class GuardianVerifyResponse(BaseModel):   # 가입 폼에 보여줄 보호자 이름
+    name: Optional[str] = None
 
 
 class WithdrawRequest(BaseModel):         # 회원 탈퇴 요청 (본인 확인용 비밀번호)
