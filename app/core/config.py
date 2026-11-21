@@ -29,6 +29,9 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
+# 배송 신청 1건당 배송비(원) — 한 번에 신청한 상품은 한 박스로 보내므로 몇 개든 1번만 낸다
+SHIPPING_FEE = 4000
+
 # 응모권 1장당 가격 (운포인트, 고정값)
 RAFFLE_TICKET_PRICE = 1000
 # 응모 상품 진행 기간 (등록 시점 기준, 관리자가 등록할 때 이 중에서 선택)

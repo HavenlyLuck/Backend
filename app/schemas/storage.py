@@ -17,17 +17,13 @@ class StorageItemResponse(BaseModel):
     amount_spent: Optional[int] = None
     status: Literal["ready", "requested", "shipped"]
     address_id: Optional[int] = None
+    shipping_payment_id: Optional[str] = None   # 배송 신청 때 낸 배송비 결제 — 같은 값인 상품끼리 같이 신청한 것 (배송 취소도 같이 된다)
     requested_at: Optional[datetime] = None
     created_at: datetime
     carrier: Optional[str] = None
     tracking_number: Optional[str] = None
     shipped_at: Optional[datetime] = None
     delivered_at: Optional[datetime] = None   # 있으면 배송 완료, 없으면(발송 후) 배송중
-
-
-class ShippingRequest(BaseModel):
-    storage_item_ids: list[int]
-    address_id: int
 
 
 class AdminShippingAddress(BaseModel):

@@ -9,9 +9,15 @@ from app.models.kuji import KujiSet, KujiPrize
 from app.models.payment import Payment
 from app.models.user import User
 from app.models.address import ShippingAddress
+from app.crud import address as address_crud
 
 
 class StorageCancelError(Exception):
+    pass
+
+
+# 배송 신청할 수 없는 경우 (보관함에 없음 · 이미 신청됨 · 배송지 없음)
+class ShippingRequestError(Exception):
     pass
 
 
@@ -106,6 +112,7 @@ def _item_dict(item, raffle, store, kuji, prize) -> dict:
         "amount_spent": item.amount_spent,
         "status": item.status,
         "address_id": item.address_id,
+        "shipping_payment_id": item.shipping_payment_id,
         "requested_at": item.requested_at,
         "created_at": item.created_at,
         "carrier": item.carrier,
@@ -181,13 +188,90 @@ def get_user_items_for_update(db: Session, user_id: int, storage_item_ids: list[
     )
 
 
-def request_shipping(db: Session, items: list[StorageItem], address_id: int) -> None:
+# 배송 신청할 수 있는지 확인 — 보관 중(ready)인 내 상품 + 내 배송지. 확인한 상품들을 잠근 채로 돌려준다
+def _check_shipping(db: Session, user_id: int, storage_item_ids: list[int], address_id: int) -> list[StorageItem]:
+    ids = set(storage_item_ids)
+    if not ids:
+        raise ShippingRequestError("배송 신청할 상품을 선택해주세요")
+    if not address_crud.get_user_address(db, user_id, address_id):
+        raise LookupError("배송지를 찾을 수 없습니다")
+    items = get_user_items_for_update(db, user_id, list(ids))
+    if len(items) != len(ids):
+        raise LookupError("보관함에 없는 상품이 포함되어 있습니다")
+    if any(item.status != "ready" for item in items):
+        raise ShippingRequestError("이미 배송 신청된 상품이 포함되어 있습니다")
+    return items
+
+
+# 배송비 결제창을 열기 전 확인 (결제 후 fulfill_shipping에서 다시 확인한다)
+def check_can_request_shipping(db: Session, user_id: int, storage_item_ids: list[int], address_id: int) -> int:
+    try:
+        return len(_check_shipping(db, user_id, storage_item_ids, address_id))
+    finally:
+        db.rollback()   # 확인만 하고 잠금을 푼다
+
+
+# 배송비 결제 확인 후 배송 신청 접수 — 결제 완료 처리와 같은 트랜잭션에서 호출한다 (commit은 호출한 쪽에서).
+# 그 사이 다른 결제로 이미 신청됐거나 배송지를 지웠으면 ShippingRequestError/LookupError → 결제를 환불한다
+def fulfill_shipping(db: Session, user_id: int, storage_item_ids: list[int], address_id: int, payment_id: str) -> list[StorageItem]:
+    items = _check_shipping(db, user_id, storage_item_ids, address_id)
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     for item in items:
         item.status = "requested"
         item.address_id = address_id
         item.requested_at = now
+        item.shipping_payment_id = payment_id
+    db.flush()
+    return items
+
+
+# 배송 신청 취소 — 발송 전(requested)에만. 같은 배송비로 같이 신청한 상품은 한 박스라 함께 취소되고 보관 중으로 돌아간다.
+# 배송비 결제는 cancel_requested로 바꿔 둔다. commit 후 호출한 쪽이 포트원 환불을 요청한다 (실패하면 주기 작업이 다시 시도)
+# 반환: 환불 요청할 payment_id (배송비 없이 신청됐던 예전 신청이면 None)
+def cancel_shipping(db: Session, user_id: int, storage_item_id: int) -> Optional[str]:
+    item = (
+        db.query(StorageItem)
+        .filter(StorageItem.storage_item_id == storage_item_id, StorageItem.user_id == user_id)
+        .with_for_update()
+        .first()
+    )
+    if not item:
+        raise LookupError("보관함에 없는 상품입니다")
+    if item.status == "shipped":
+        raise StorageCancelError("이미 발송된 상품은 배송 신청을 취소할 수 없습니다")
+    if item.status != "requested":
+        raise StorageCancelError("배송 신청한 상품이 아닙니다")
+
+    payment = None
+    items = [item]
+    if item.shipping_payment_id:
+        payment = (
+            db.query(Payment)
+            .filter(Payment.payment_id == item.shipping_payment_id, Payment.user_id == user_id)
+            .with_for_update()
+            .first()
+        )
+        if not payment or payment.status != "paid":
+            raise StorageCancelError("환불할 수 없는 배송비 결제입니다. 고객센터로 문의해주세요")
+        items = (
+            db.query(StorageItem)
+            .filter(StorageItem.shipping_payment_id == payment.payment_id)
+            .with_for_update()
+            .all()
+        )
+        # 관리자가 일부만 먼저 발송했으면 배송비를 돌려줄 수 없다
+        if any(i.status != "requested" for i in items):
+            raise StorageCancelError("함께 신청한 상품 중 이미 발송된 상품이 있어 취소할 수 없습니다. 고객센터로 문의해주세요")
+        payment.status = "cancel_requested"
+        payment.cancel_reason = "배송 신청 취소"
+
+    for i in items:
+        i.status = "ready"
+        i.address_id = None
+        i.requested_at = None
+        i.shipping_payment_id = None
     db.commit()
+    return payment.payment_id if payment else None
 
 
 # 보관함에서 상점 구매 취소 — 배송 신청 전(ready)인 카드 결제 상점 구매만 가능 (쌀포인트 구매는 취소 불가).

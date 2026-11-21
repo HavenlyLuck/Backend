@@ -16,6 +16,7 @@ class StorageItem(Base):
     payment_id        = Column(String(64), ForeignKey("payments.payment_id"), nullable=True)   # 카드 결제로 받은 경우 그 결제
     status            = Column(Enum("ready", "requested", "shipped", name="storage_status"), nullable=False, default="ready", server_default="ready")
     address_id        = Column(Integer, ForeignKey("shipping_addresses.address_id"), nullable=True)   # 배송 신청 시 선택한 배송지
+    shipping_payment_id = Column(String(64), ForeignKey("payments.payment_id"), nullable=True, index=True)  # 배송 신청 때 낸 배송비 결제 (같이 신청한 상품끼리 같다)
     requested_at      = Column(DateTime, nullable=True)
     carrier           = Column(String(30), nullable=True)    # 발송 처리 때 관리자가 입력한 택배사
     tracking_number   = Column(String(50), nullable=True)    # 송장번호

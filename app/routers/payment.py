@@ -1,4 +1,4 @@
-# app/routers/payment.py — 응모권 · 쿠지 · 결제 상점 상품 카드 결제 (포트원 V2)
+# app/routers/payment.py — 응모권 · 쿠지 · 결제 상점 상품 · 배송비 카드 결제 (포트원 V2)
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -11,13 +11,15 @@ from app.schemas.payment import (
     PaymentPrepareRequest, PaymentPrepareResponse, PaymentCustomer, PaymentCompleteResponse, MyPaymentResponse,
 )
 from app.schemas.raffle import RaffleEntryCreateResponse
+from app.schemas.storage import StorageItemResponse
 from app.crud import payment as payment_crud
 from app.crud import raffle as raffle_crud
 from app.crud import kuji as kuji_crud
 from app.crud import store as store_crud
+from app.crud import storage as storage_crud
 from app.routers.kuji import validate_ticket_numbers, build_draw_response
 from app.routers.store import store_purchase_response
-from app.core.config import RAFFLE_TICKET_PRICE
+from app.core.config import RAFFLE_TICKET_PRICE, SHIPPING_FEE
 
 router = APIRouter()
 
@@ -28,7 +30,7 @@ def _quantity(payload: PaymentPrepareRequest) -> int:
     return payload.quantity
 
 
-# 마이페이지 구매 내역 — 내 카드 결제(응모권 · 쿠지 · 결제 상점), 환불된 것 포함, 최신순
+# 마이페이지 구매 내역 — 내 카드 결제(응모권 · 쿠지 · 결제 상점 · 배송비), 환불된 것 포함, 최신순
 @router.get("/me", response_model=list[MyPaymentResponse])
 def list_my_payments(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return payment_crud.get_my_payments(db, user.user_id)
@@ -38,6 +40,7 @@ def list_my_payments(db: Session = Depends(get_db), user: User = Depends(get_cur
 @router.post("/prepare", response_model=PaymentPrepareResponse)
 def prepare_payment(payload: PaymentPrepareRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     ticket_numbers = None
+    storage_item_ids = None
     if payload.order_type == "raffle_entry":
         quantity = _quantity(payload)
         product = raffle_crud.get_raffle_product(db, payload.target_id)
@@ -74,6 +77,18 @@ def prepare_payment(payload: PaymentPrepareRequest, db: Session = Depends(get_db
         amount = kuji.ticket_price * quantity
         order_name = f"{kuji.title} 쿠지 {quantity}장"
 
+    elif payload.order_type == "shipping_fee":
+        # 보관함 상품 배송 신청 — 한 번에 신청한 상품은 한 박스라 배송비는 1번 (target_id = 배송지)
+        storage_item_ids = sorted(set(payload.storage_item_ids or []))
+        try:
+            quantity = storage_crud.check_can_request_shipping(db, user.user_id, storage_item_ids, payload.target_id)
+        except LookupError as e:
+            raise HTTPException(status_code=404, detail=str(e))
+        except storage_crud.ShippingRequestError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+        amount = SHIPPING_FEE
+        order_name = f"배송비 · 상품 {quantity}개"
+
     else:
         quantity = _quantity(payload)
         product = store_crud.get_store_product(db, payload.target_id)
@@ -95,6 +110,7 @@ def prepare_payment(payload: PaymentPrepareRequest, db: Session = Depends(get_db
         order_name=order_name,
         amount=amount,
         ticket_numbers=ticket_numbers,
+        storage_item_ids=storage_item_ids,
     )
     return PaymentPrepareResponse(
         payment_id=payment.payment_id,
@@ -136,6 +152,11 @@ def complete_payment(payment_id: str, db: Session = Depends(get_db), user: User 
             db, payment.target_id, user.user_id, list(payment.ticket_numbers or []), payment_id,
         )
         response.kuji_draw = build_draw_response(db, kuji, drawn, [], got_last_one, payment.amount)
+    elif payment.order_type == "shipping_fee":
+        response.shipping = [
+            StorageItemResponse(**item) for item in storage_crud.get_user_storage_items(db, user.user_id)
+            if item["shipping_payment_id"] == payment_id
+        ]
     else:
         item = db.query(StorageItem).filter(StorageItem.payment_id == payment_id).first()
         product = store_crud.get_store_product(db, payment.target_id, include_deleted=True)
