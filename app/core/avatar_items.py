@@ -63,9 +63,16 @@ AVATAR_ITEMS: dict[str, dict] = {
     "hair-monster": {"name": "초록 괴물 머리", "price": 3500, "slot": "hairItem"},
     "hair-alien": {"name": "외계인 머리", "price": 3500, "slot": "hairItem"},
     "hair-dino": {"name": "으르렁 공룡 머리", "price": 3500, "slot": "hairItem"},
+    # 오라 — 캐릭터 둘레에서 움직이는 빛 (그림은 프론트 lib/avatar/auras.ts)
+    "aura-gold-halo": {"name": "금빛 후광", "price": 5000, "slot": "aura"},
+    "aura-thunder": {"name": "천운 번개", "price": 5000, "slot": "aura"},
+    "aura-blue-flame": {"name": "푸른 도깨비불", "price": 4500, "slot": "aura"},
+    "aura-sakura": {"name": "벚꽃 바람", "price": 4000, "slot": "aura"},
+    # 등 — 날개·망토처럼 등에 다는 장식 (그림은 프론트 lib/avatar/backs.ts). 오라와 같이 입을 수 있다
+    "back-angel-wings": {"name": "천사 날개", "price": 6000, "slot": "back"},
 }
 
 # 착용 칸 — 칸마다 아이템 하나씩 (머리 모양은 무료라 상점 아이템이 아니다). 프론트 shopItems.ts의 WEAR_SLOTS와 같다
-# 머리(상점 머리 — 입으면 무료 머리 모양 대신 그린다)·표정·문신·상의·하의·모자·신발·손·배경
-AVATAR_ITEM_SLOTS = ("hairItem", "face", "tattoo", "top", "bottom", "hat", "shoes", "held", "background")
+# 머리(상점 머리 — 입으면 무료 머리 모양 대신 그린다)·표정·문신·상의·하의·모자·신발·손·등·오라·배경
+AVATAR_ITEM_SLOTS = ("hairItem", "face", "tattoo", "top", "bottom", "hat", "shoes", "held", "back", "aura", "background")
 

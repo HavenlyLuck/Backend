@@ -17,6 +17,8 @@ class AvatarConfig(BaseModel):
     hat: Optional[str] = None         # 모자
     shoes: Optional[str] = None       # 신발
     held: Optional[str] = None        # 손
+    back: Optional[str] = None        # 등
+    aura: Optional[str] = None        # 오라
     background: Optional[str] = None  # 배경
 
 
@@ -24,7 +26,7 @@ class AvatarItemResponse(BaseModel):
     item_id: str
     name: str
     price: int   # 쌀포인트
-    slot: Literal["hairItem", "face", "tattoo", "top", "bottom", "hat", "shoes", "held", "background"]
+    slot: Literal["hairItem", "face", "tattoo", "top", "bottom", "hat", "shoes", "held", "back", "aura", "background"]
 
 
 class AvatarItemPurchaseResponse(BaseModel):

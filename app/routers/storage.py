@@ -6,9 +6,8 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.core.dependencies import get_current_user, get_current_admin
 from app.models.user import User
-from app.schemas.storage import StorageItemResponse, ShippingRequest, AdminShippingItemResponse, AdminShipRequest, TrackingResponse
+from app.schemas.storage import StorageItemResponse, AdminShippingItemResponse, AdminShipRequest, TrackingResponse
 from app.crud import storage as storage_crud
-from app.crud import address as address_crud
 from app.crud import payment as payment_crud
 from app.services import tracker
 
@@ -23,7 +22,8 @@ def get_my_storage(
     return storage_crud.get_user_storage_items(db, user.user_id)
 
 
-# 선택한 보관함 상품 배송 신청 — 보관 중(ready)인 내 상품만 신청 가능
+# 배송 신청은 배송비 카드 결제로 한다 — POST /payments/prepare (order_type=shipping_fee) → 결제 → /payments/{id}/complete 에서 접수
+
 # 배송 조회 (스마트택배) — 내가 받은 송장만 조회할 수 있다. 배송완료가 확인되면 그 송장의 상품을 배송 완료로 표시
 @router.get("/tracking", response_model=TrackingResponse)
 def track_my_parcel(
@@ -46,28 +46,25 @@ def track_my_parcel(
     return result
 
 
-@router.post("/ship", response_model=list[StorageItemResponse])
-def request_shipping(
-    payload: ShippingRequest,
+# 배송 신청 취소 — 발송 전(requested)인 상품만. 같은 배송비로 같이 신청한 상품은 함께 보관 중으로 돌아가고 배송비를 환불한다
+@router.post("/{storage_item_id}/cancel-shipping", response_model=list[StorageItemResponse])
+def cancel_shipping(
+    storage_item_id: int,
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    ids = set(payload.storage_item_ids)
-    if not ids:
-        raise HTTPException(status_code=400, detail="배송 신청할 상품을 선택해주세요")
-
-    if not address_crud.get_user_address(db, user.user_id, payload.address_id):
-        raise HTTPException(status_code=404, detail="배송지를 찾을 수 없습니다")
-
-    items = storage_crud.get_user_items_for_update(db, user.user_id, list(ids))
-    if len(items) != len(ids):
+    try:
+        payment_id = storage_crud.cancel_shipping(db, user.user_id, storage_item_id)
+    except LookupError as e:
         db.rollback()
-        raise HTTPException(status_code=404, detail="보관함에 없는 상품이 포함되어 있습니다")
-    if any(item.status != "ready" for item in items):
+        raise HTTPException(status_code=404, detail=str(e))
+    except storage_crud.StorageCancelError as e:
         db.rollback()
-        raise HTTPException(status_code=400, detail="이미 배송 신청된 상품이 포함되어 있습니다")
+        raise HTTPException(status_code=400, detail=str(e))
 
-    storage_crud.request_shipping(db, items, payload.address_id)
+    # 포트원 환불이 지금 실패해도 cancel_requested로 남아 주기 작업이 다시 시도한다
+    if payment_id:
+        payment_crud.try_cancel_payment(db, payment_id)
     return storage_crud.get_user_storage_items(db, user.user_id)
 
 

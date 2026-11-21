@@ -1,4 +1,4 @@
-# 카드 결제 주문 — 응모권 · 쿠지 제비 · 결제 상점 상품을 포트원 결제로 산다.
+# 카드 결제 주문 — 응모권 · 쿠지 제비 · 결제 상점 상품 · 배송비를 포트원 결제로 낸다.
 #  1) prepare: 서버가 금액을 정해 pending 주문을 만든다 (프론트는 이 payment_id·금액으로 결제창을 연다)
 #  2) complete: 포트원에 결제를 직접 조회해서 PAID이고 금액이 같으면 지급한다
 #     지급할 수 없으면(그 사이 매진·제비가 먼저 나감 등) 결제를 취소한다
@@ -18,6 +18,7 @@ from app.services import portone
 from app.crud import raffle as raffle_crud
 from app.crud import kuji as kuji_crud
 from app.crud import store as store_crud
+from app.crud import storage as storage_crud
 
 # 결제창을 띄운 지 이 시간이 지나도 결제가 안 됐으면 버려진 주문으로 본다
 PENDING_EXPIRE_MINUTES = 60
@@ -53,6 +54,7 @@ def create_payment(
     order_name: str,
     amount: int,
     ticket_numbers: Optional[list[int]] = None,
+    storage_item_ids: Optional[list[int]] = None,
 ) -> Payment:
     payment = Payment(
         payment_id=new_payment_id(),
@@ -61,6 +63,7 @@ def create_payment(
         target_id=target_id,
         quantity=quantity,
         ticket_numbers=ticket_numbers,
+        storage_item_ids=storage_item_ids,
         order_name=order_name[:200],
         amount=amount,
         status="pending",
@@ -100,7 +103,12 @@ def _fulfill(db: Session, payment: Payment) -> list[int]:
             )
             if item.amount_spent != payment.amount:
                 raise FulfillError("결제 금액이 상품 가격과 맞지 않습니다")
-    except (raffle_crud.RaffleEntryError, kuji_crud.KujiDrawError, store_crud.StorePurchaseError, LookupError) as e:
+        elif payment.order_type == "shipping_fee":
+            storage_crud.fulfill_shipping(
+                db, payment.user_id, list(payment.storage_item_ids or []), payment.target_id, payment.payment_id,
+            )
+    except (raffle_crud.RaffleEntryError, kuji_crud.KujiDrawError, store_crud.StorePurchaseError,
+            storage_crud.ShippingRequestError, LookupError) as e:
         raise FulfillError(str(e))
     return []
 
@@ -270,6 +278,7 @@ def get_my_payments(db: Session, user_id: int) -> list[dict]:
         "kuji_draw": lookup(KujiSet, KujiSet.kuji_set_id, KujiSet.title, ids_of("kuji_draw")),
         "store_purchase": lookup(StoreProduct, StoreProduct.store_product_id, StoreProduct.product_name, ids_of("store_purchase")),
         "store_funding": lookup(StoreProduct, StoreProduct.store_product_id, StoreProduct.product_name, ids_of("store_funding")),
+        "shipping_fee": {},   # 상품이 아니라 주문 이름("배송비 · 상품 n개")을 그대로 보여준다
     }
     result = []
     for p in payments:
