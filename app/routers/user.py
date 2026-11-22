@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.core.config import settings
 from app.database import get_db
 from app.models.user import User, UsedIdentityVerification
+from app.models.free_ticket import FreeTicket
 from sqlalchemy.exc import IntegrityError
 from app.schemas.user import (
     UserSignup, UserLogin, UserResponse, TokenResponse,
@@ -15,6 +16,7 @@ from app.schemas.user import (
     IdentityVerifyRequest, IdentityVerifyResponse, GuardianVerifyRequest, GuardianVerifyResponse, PasswordChangeRequest,
     WithdrawRequest, ReviewMarketingConsentRequest,
     FindIdRequest, FindIdResponse, PasswordResetCheckRequest, PasswordResetRequest,
+    SignupResponse,
 )
 from app.core.security import hash_password, verify_password, create_token, decode_token
 from app.core.dependencies import get_current_user
@@ -178,7 +180,21 @@ def verify_guardian(body: GuardianVerifyRequest, db: Session = Depends(get_db)):
     return GuardianVerifyResponse(name=guardian["name"])
 
 # 회원가입
-@router.post("/signup", response_model=UserResponse)
+KST = timezone(timedelta(hours=9))
+
+
+# 오픈 이벤트 기간인지 — SIGNUP_EVENT_END_DATE(한국 날짜, 그날 23:59까지)
+def _signup_event_active() -> bool:
+    end = (settings.SIGNUP_EVENT_END_DATE or "").strip()
+    if not end:
+        return False
+    try:
+        return datetime.now(KST).date() <= date.fromisoformat(end)
+    except ValueError:
+        return False
+
+
+@router.post("/signup", response_model=SignupResponse)
 def signup(body: UserSignup, db: Session = Depends(get_db)):
     # 필수 동의
     if not body.terms_agreed:
@@ -242,14 +258,19 @@ def signup(body: UserSignup, db: Session = Depends(get_db)):
         db.add(UsedIdentityVerification(
             identity_verification_id=body.guardian_identity_verification_id, purpose="guardian_consent",
         ))
+    event_ticket = _signup_event_active()
     try:
+        if event_ticket:
+            # 오픈 이벤트 가입 선물 — 쌀 응모권 1장을 보관함에 (가입과 같은 트랜잭션)
+            db.flush()
+            db.add(FreeTicket(user_id=user.user_id, kind="signup_event"))
         db.commit()
     except IntegrityError:
         # 같은 보호자 인증으로 동시에 가입한 경우, 또는 같은 아이디·번호로 동시에 가입한 경우
         db.rollback()
         raise HTTPException(status_code=400, detail="가입을 처리하지 못했습니다. 다시 시도해주세요")
     db.refresh(user)
-    return user
+    return SignupResponse.model_validate(user).model_copy(update={"signup_event_ticket": event_ticket})
 
 
 # 로그인
