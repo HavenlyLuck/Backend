@@ -20,6 +20,7 @@ class PaymentPrepareRequest(BaseModel):
     quantity: Optional[int] = None
     ticket_numbers: Optional[list[int]] = None
     storage_item_ids: Optional[list[int]] = None
+    point_use: int = 0                  # store_purchase: 할인에 쓸 쌀포인트 (구매 금액의 10%까지, 1P = 1원)
 
 
 # 결제창 구매자 정보 (이름·전화번호·이메일)
@@ -33,7 +34,8 @@ class PaymentCustomer(BaseModel):
 class PaymentPrepareResponse(BaseModel):
     payment_id: Optional[str] = None
     order_name: str = ""
-    amount: int = 0
+    amount: int = 0                     # 카드로 낼 금액 (쌀포인트 할인 뒤)
+    point_used: int = 0                 # 할인에 쓸 쌀포인트 — 결제가 확인되면 차감한다
     customer: Optional[PaymentCustomer] = None
     conflict_ticket_numbers: list[int] = []
 
@@ -45,6 +47,10 @@ class PaymentCompleteResponse(BaseModel):
     order_type: PaymentOrderType
     status: Literal["paid", "pending", "failed", "cancelled"]
     message: Optional[str] = None
+    # 메타 픽셀 Purchase용 (브라우저) — 실제 카드 결제 금액, 상품, 수량
+    amount: int = 0
+    target_id: int = 0
+    quantity: int = 0
     raffle_entry: Optional[RaffleEntryCreateResponse] = None
     kuji_draw: Optional[KujiDrawResponse] = None
     store_purchase: Optional[StorePurchaseResponse] = None
@@ -61,5 +67,6 @@ class MyPaymentResponse(BaseModel):
     image_url: Optional[str] = None
     quantity: int                       # 응모권 장수 / 제비 장수 / 구매 수량 / 배송 상품 수 (부분 취소 후엔 남은 수)
     amount: int                         # 결제 금액(원, 부분 취소 후엔 남은 금액)
+    point_used: int = 0                 # 결제 상점: 할인에 쓴 쌀포인트
     status: Literal["paid", "refunded"]
     paid_at: datetime

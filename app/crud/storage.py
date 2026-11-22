@@ -9,6 +9,7 @@ from app.models.kuji import KujiSet, KujiPrize
 from app.models.payment import Payment
 from app.models.user import User
 from app.models.address import ShippingAddress
+from app.crud import point as point_crud
 from app.crud import address as address_crud
 
 
@@ -311,6 +312,13 @@ def cancel_store_purchase(db: Session, user_id: int, storage_item_id: int) -> st
         raise StorageCancelError("구매 취소할 수 없는 결제입니다")
     payment.status = "cancel_requested"
     payment.cancel_reason = "보관함에서 구매 취소"
+    if payment.point_used:
+        # 할인에 쓴 쌀포인트는 카드 환불과 함께 바로 돌려준다
+        point_crud.apply_point_change(
+            db, user_id, payment.point_used, "store_discount_refund",
+            reference_id=item.storage_item_id,
+            description=f"{product.product_name} 구매 취소 — 할인 쌀포인트 반환"[:255],
+        )
 
     product.stock += item.quantity
     db.delete(item)

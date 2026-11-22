@@ -14,7 +14,7 @@ class PointTransactionResponse(BaseModel):
     transaction_id: int
     amount: int
     balance_after: int
-    reason: Literal["store_purchase", "admin_grant", "raffle_consolation", "avatar_purchase"]
+    reason: Literal["store_purchase", "admin_grant", "raffle_consolation", "avatar_purchase", "withdrawal", "store_discount", "store_discount_refund"]
     reference_id: Optional[int] = None
     description: Optional[str] = None
     created_at: datetime

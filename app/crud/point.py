@@ -41,6 +41,12 @@ def apply_point_change(
     return transaction
 
 
+# 잠그지 않고 잔액만 본다 (지갑이 없으면 0)
+def get_balance(db: Session, user_id: int) -> int:
+    wallet = db.query(PointWallet).filter(PointWallet.user_id == user_id).first()
+    return wallet.ssal_point if wallet else 0
+
+
 def get_point_transactions(db: Session, user_id: int) -> list[PointTransaction]:
     return (
         db.query(PointTransaction)
