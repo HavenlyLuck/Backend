@@ -19,6 +19,7 @@ from app.crud import raffle as raffle_crud
 from app.crud import kuji as kuji_crud
 from app.crud import store as store_crud
 from app.crud import storage as storage_crud
+from app.crud import point as point_crud
 
 # 결제창을 띄운 지 이 시간이 지나도 결제가 안 됐으면 버려진 주문으로 본다
 PENDING_EXPIRE_MINUTES = 60
@@ -55,6 +56,7 @@ def create_payment(
     amount: int,
     ticket_numbers: Optional[list[int]] = None,
     storage_item_ids: Optional[list[int]] = None,
+    point_used: int = 0,
 ) -> Payment:
     payment = Payment(
         payment_id=new_payment_id(),
@@ -66,6 +68,7 @@ def create_payment(
         storage_item_ids=storage_item_ids,
         order_name=order_name[:200],
         amount=amount,
+        point_used=point_used,
         status="pending",
         # 만료 판단을 파이썬 UTC 기준으로 하므로 DB 기본값(DB 시간대) 대신 직접 넣는다
         created_at=_utcnow(),
@@ -101,8 +104,18 @@ def _fulfill(db: Session, payment: Payment) -> list[int]:
             product, item = store_crud.fulfill_store_purchase(
                 db, payment.target_id, payment.user_id, payment.quantity, "cash", payment.payment_id,
             )
-            if item.amount_spent != payment.amount:
+            if item.amount_spent != payment.amount + (payment.point_used or 0):
                 raise FulfillError("결제 금액이 상품 가격과 맞지 않습니다")
+            if payment.point_used:
+                # 할인 쌀포인트는 결제가 확인된 지금 차감한다 — 그 사이 다 써서 모자라면 결제를 취소한다
+                try:
+                    point_crud.apply_point_change(
+                        db, payment.user_id, -payment.point_used, "store_discount",
+                        reference_id=item.storage_item_id,
+                        description=f"{product.product_name} 구매 할인 ({payment.quantity}개)"[:255],
+                    )
+                except ValueError:
+                    raise FulfillError("할인에 쓸 쌀포인트가 부족합니다")
         elif payment.order_type == "shipping_fee":
             storage_crud.fulfill_shipping(
                 db, payment.user_id, list(payment.storage_item_ids or []), payment.target_id, payment.payment_id,
@@ -291,6 +304,7 @@ def get_my_payments(db: Session, user_id: int) -> list[dict]:
             "image_url": image,
             "quantity": p.quantity,
             "amount": p.amount,
+            "point_used": p.point_used or 0,
             "status": "paid" if p.status == "paid" else "refunded",
             "paid_at": p.paid_at,
         })

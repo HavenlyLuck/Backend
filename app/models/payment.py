@@ -17,6 +17,7 @@ class Payment(Base):
     storage_item_ids = Column(JSON, nullable=True)            # 배송비: 배송 신청할 보관함 상품들
     order_name     = Column(String(200), nullable=False)
     amount         = Column(Integer, nullable=False)          # 결제해야 하는 금액(원) — 포트원 결제 금액과 반드시 같아야 지급한다
+    point_used     = Column(Integer, nullable=False, default=0, server_default="0")   # 결제 상점: 쌀포인트 할인(1P = 1원). amount는 할인 뒤 카드 결제 금액
     status         = Column(Enum("pending", "paid", "cancel_requested", "cancelled", "failed", "cancel_failed", name="payment_status"), nullable=False, default="pending", server_default="pending", index=True)
     cancel_reason  = Column(String(200), nullable=True)
     paid_at        = Column(DateTime, nullable=True)

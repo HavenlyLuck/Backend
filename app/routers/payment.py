@@ -12,16 +12,23 @@ from app.schemas.payment import (
 )
 from app.schemas.raffle import RaffleEntryCreateResponse
 from app.schemas.storage import StorageItemResponse
+from app.schemas.store import StorePurchaseResponse
 from app.crud import payment as payment_crud
 from app.crud import raffle as raffle_crud
 from app.crud import kuji as kuji_crud
 from app.crud import store as store_crud
 from app.crud import storage as storage_crud
+from app.crud import point as point_crud
 from app.routers.kuji import validate_ticket_numbers, build_draw_response
 from app.routers.store import store_purchase_response
-from app.core.config import RAFFLE_TICKET_PRICE, SHIPPING_FEE
+from app.core.config import RAFFLE_TICKET_PRICE, SHIPPING_FEE, STORE_POINT_DISCOUNT_RATE_PERCENT
 
 router = APIRouter()
+
+
+# 결제 상점 구매 금액에서 쌀포인트로 할인받을 수 있는 최대치 (원 단위 내림)
+def max_store_point_discount(total: int) -> int:
+    return total * STORE_POINT_DISCOUNT_RATE_PERCENT // 100
 
 
 def _quantity(payload: PaymentPrepareRequest) -> int:
@@ -41,6 +48,9 @@ def list_my_payments(db: Session = Depends(get_db), user: User = Depends(get_cur
 def prepare_payment(payload: PaymentPrepareRequest, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     ticket_numbers = None
     storage_item_ids = None
+    point_used = 0
+    if payload.point_use and payload.order_type != "store_purchase":
+        raise HTTPException(status_code=400, detail="쌀포인트 할인은 상점 상품 구매에만 쓸 수 있습니다")
     if payload.order_type == "raffle_entry":
         quantity = _quantity(payload)
         product = raffle_crud.get_raffle_product(db, payload.target_id)
@@ -98,7 +108,15 @@ def prepare_payment(payload: PaymentPrepareRequest, db: Session = Depends(get_db
             raise HTTPException(status_code=400, detail="쌀포인트로 구매하는 상품입니다")
         if product.stock < quantity:
             raise HTTPException(status_code=400, detail="재고가 부족합니다")
-        amount = product.price * quantity
+        total = product.price * quantity
+        point_used = payload.point_use or 0
+        if point_used < 0:
+            raise HTTPException(status_code=400, detail="쌀포인트 사용량이 올바르지 않습니다")
+        if point_used > max_store_point_discount(total):
+            raise HTTPException(status_code=400, detail=f"쌀포인트는 구매 금액의 {STORE_POINT_DISCOUNT_RATE_PERCENT}%까지만 쓸 수 있습니다")
+        if point_used and point_crud.get_balance(db, user.user_id) < point_used:
+            raise HTTPException(status_code=400, detail="쌀포인트가 부족합니다")
+        amount = total - point_used
         order_name = f"{product.product_name} {quantity}개"
 
     payment = payment_crud.create_payment(
@@ -111,11 +129,13 @@ def prepare_payment(payload: PaymentPrepareRequest, db: Session = Depends(get_db
         amount=amount,
         ticket_numbers=ticket_numbers,
         storage_item_ids=storage_item_ids,
+        point_used=point_used,
     )
     return PaymentPrepareResponse(
         payment_id=payment.payment_id,
         order_name=payment.order_name,
         amount=payment.amount,
+        point_used=payment.point_used,
         customer=PaymentCustomer(full_name=user.name or user.nickname, phone_number=user.phone, email=user.email),
     )
 
@@ -135,6 +155,7 @@ def complete_payment(payment_id: str, db: Session = Depends(get_db), user: User 
     status = "cancelled" if outcome["status"] in ("cancel_requested", "cancel_failed") else outcome["status"]
     response = PaymentCompleteResponse(
         payment_id=payment_id, order_type=payment.order_type, status=status, message=outcome["message"],
+        amount=payment.amount, target_id=payment.target_id, quantity=payment.quantity,
     )
 
     if payment.order_type == "kuji_draw" and outcome["conflicts"]:
@@ -160,5 +181,7 @@ def complete_payment(payment_id: str, db: Session = Depends(get_db), user: User 
     else:
         item = db.query(StorageItem).filter(StorageItem.payment_id == payment_id).first()
         product = store_crud.get_store_product(db, payment.target_id, include_deleted=True)
-        response.store_purchase = store_purchase_response(product, item)
+        response.store_purchase = StorePurchaseResponse(
+            **store_purchase_response(product, item), point_used=payment.point_used or 0,
+        )
     return response

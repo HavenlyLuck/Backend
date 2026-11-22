@@ -58,6 +58,7 @@ class StorePurchaseResponse(BaseModel):
     amount_spent: int
     pay_type: Literal["cash", "ssal"]
     remaining_stock: int
+    point_used: int = 0   # 결제 상점: 할인에 쓴 쌀포인트 (카드 결제 금액 = amount_spent - point_used)
 
 
 class StoreStockUpdate(BaseModel):
