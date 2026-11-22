@@ -22,6 +22,8 @@ class Settings(BaseSettings):
     PORTONE_STORE_ID: Optional[str] = None
     # 스마트택배(스윗트래커) 배송 조회 API 키 (tracking.sweettracker.co.kr 에서 발급). 없으면 배송 조회가 비활성화된다
     SWEETTRACKER_API_KEY: Optional[str] = None
+    # 오픈 이벤트 — 이 날짜(한국 시간, 그날 포함)까지 가입하면 쌀 응모권 1장을 준다. 비우면(빈 문자열) 이벤트 없음
+    SIGNUP_EVENT_END_DATE: Optional[str] = "2026-12-22"
 
 
     class Config:

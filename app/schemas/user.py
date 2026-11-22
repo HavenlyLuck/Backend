@@ -104,3 +104,8 @@ class PasswordResetRequest(BaseModel):        # 비밀번호 찾기 2단계: 새
     login_id: str
     identity_verification_id: str
     new_password: str
+
+
+# 회원가입 결과 — signup_event_ticket: 오픈 이벤트로 쌀 응모권 1장을 보관함에 넣었는지 (프론트가 축하 팝업을 띄운다)
+class SignupResponse(UserResponse):
+    signup_event_ticket: bool = False
