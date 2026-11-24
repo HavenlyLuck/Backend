@@ -30,6 +30,7 @@ def create_store_product(
     stock: int = Form(...),
     image: Optional[UploadFile] = File(None),
     inventory_item_id: Optional[int] = Form(None),
+    funding_disabled: bool = Form(False),
     db: Session = Depends(get_db),
     admin: User = Depends(get_current_admin),
 ):
@@ -53,6 +54,7 @@ def create_store_product(
             stock=stock,
             image_url=image_url,
             inventory_item_id=inventory_item_id,
+            funding_disabled=funding_disabled and pay_type == "cash",
         )
     except inventory_crud.InventoryError as e:
         db.rollback()
@@ -124,8 +126,8 @@ def get_store_product(
     if not product:
         raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다")
     response = StoreProductDetailResponse.model_validate(product)
-    # 결제 상점 상품은 응모 전환 모금 현황을 함께 내려준다
-    if product.pay_type == "cash":
+    # 결제 상점 상품은 응모 전환 모금 현황을 함께 내려준다 (응모 전환을 막은 상품은 내려주지 않아 칸이 안 보인다)
+    if product.pay_type == "cash" and not product.funding_disabled:
         response.funding = raffle_crud.get_funding_status(db, product, viewer)
     return response
 

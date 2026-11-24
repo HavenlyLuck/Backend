@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Date, DateTime, Enum, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Integer, String, Text, Date, DateTime, Enum, ForeignKey, UniqueConstraint
 from sqlalchemy.sql import func
 from app.database import Base
 
@@ -10,6 +10,7 @@ class InventoryItem(Base):
     name       = Column(String(200), nullable=False)
     image_url  = Column(String(500), nullable=True)
     memo       = Column(String(255), nullable=True)
+    description = Column(Text, nullable=True)   # 상품 설명 · 상품정보제공고시 — 상품 등록 때 "재고에서 고르기"로 그대로 복사된다
     created_at = Column(DateTime, server_default=func.now())
 
 

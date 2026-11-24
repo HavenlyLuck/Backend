@@ -9,12 +9,17 @@ from app.database import get_db
 from app.core.dependencies import get_current_admin
 from app.models.user import User
 from app.schemas.inventory import (
-    InventoryItemResponse, InventoryItemDetailResponse, InventoryReceiptResponse, InventoryReceiptUpdate,
+    InventoryItemResponse, InventoryItemDetailResponse, InventoryItemUpdate, InventoryReceiptResponse, InventoryReceiptUpdate,
 )
 from app.services.cloudinary import upload_image
 from app.crud import inventory as inventory_crud
 
 router = APIRouter()
+
+
+def _clean_description(text: Optional[str]) -> Optional[str]:
+    text = (text or "").strip()
+    return text[:5000] or None
 
 
 @router.get("/items", response_model=list[InventoryItemResponse])
@@ -28,6 +33,19 @@ def get_item(item_id: int, db: Session = Depends(get_db), admin: User = Depends(
     if not item:
         raise HTTPException(status_code=404, detail="재고 품목을 찾을 수 없습니다")
     return item
+
+
+# 품목 설명(상품 설명 · 상품정보제공고시) 고치기 — 이미 등록한 상품에는 영향 없고, 다음에 이 품목으로 상품을 만들 때 복사된다
+@router.patch("/items/{item_id}", response_model=InventoryItemDetailResponse)
+def update_item(
+    item_id: int,
+    payload: InventoryItemUpdate,
+    db: Session = Depends(get_db),
+    admin: User = Depends(get_current_admin),
+):
+    if not inventory_crud.update_item_description(db, item_id, _clean_description(payload.description)):
+        raise HTTPException(status_code=404, detail="재고 품목을 찾을 수 없습니다")
+    return inventory_crud.get_item_detail(db, item_id)
 
 
 # 상품에 연결된 재고 품목 (상점 수량 조정 화면에서 남은 재고를 보여주려고) — 연결이 없으면 null
@@ -52,6 +70,7 @@ def create_receipt(
     image: Optional[UploadFile] = File(None),
     supplier: Optional[str] = Form(None),
     memo: Optional[str] = Form(None),
+    description: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     admin: User = Depends(get_current_admin),
 ):
@@ -75,6 +94,7 @@ def create_receipt(
             received_at=received_at,
             supplier=(supplier or "").strip()[:100] or None,
             memo=(memo or "").strip()[:255] or None,
+            description=_clean_description(description) if item_id is None else None,
         )
     except inventory_crud.InventoryError as e:
         db.rollback()

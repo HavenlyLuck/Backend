@@ -19,6 +19,7 @@ class StoreProductResponse(BaseModel):
     price: int
     stock: int
     image_url: Optional[str] = None
+    funding_disabled: bool = False
     created_at: datetime
 
     class Config:
