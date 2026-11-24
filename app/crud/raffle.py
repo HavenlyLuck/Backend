@@ -612,6 +612,8 @@ def get_active_funding(db: Session, store_product_id: int, for_update: bool = Fa
 def funding_blocked_reason(db: Session, store_product: StoreProduct) -> Optional[str]:
     if store_product.pay_type != "cash" or store_product.deleted_at is not None:
         return "이 상품은 응모로 전환할 수 없어요"
+    if store_product.funding_disabled:
+        return "이 상품은 응모로 전환할 수 없어요"
     if store_product.price < FUNDING_MIN_PRICE:
         return f"{FUNDING_MIN_PRICE:,}원 이상인 상품만 응모로 전환할 수 있어요"
     if store_product.stock < 1:

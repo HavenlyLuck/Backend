@@ -158,6 +158,21 @@ def get_inquiry(db: Session, inquiry_id: int) -> Optional[Inquiry]:
     return db.query(Inquiry).filter(Inquiry.inquiry_id == inquiry_id).first()
 
 
+# 작성자가 고친다 — 답변이 달리기 전에만 (호출한 쪽에서 확인)
+def update_inquiry(db: Session, q: Inquiry, user: User, title: str, content: str, is_private: bool) -> dict:
+    q.title = title
+    q.content = content
+    q.is_private = is_private
+    db.commit()
+    db.refresh(q)
+    return _inquiry_dict(q, user.nickname, user)
+
+
+def delete_inquiry(db: Session, q: Inquiry) -> None:
+    db.delete(q)
+    db.commit()
+
+
 def answer_inquiry(db: Session, q: Inquiry, admin: User, answer: str) -> dict:
     q.answer = answer
     q.admin_id = admin.user_id

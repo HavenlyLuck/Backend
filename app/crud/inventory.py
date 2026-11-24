@@ -130,6 +130,7 @@ def _summaries(db: Session, items: list[InventoryItem], with_detail: bool = Fals
             "name": item.name,
             "image_url": item.image_url,
             "memo": item.memo,
+            "description": item.description,
             "total_received": total,
             "reserved": reserved,
             "sold": sold,
@@ -216,9 +217,10 @@ def create_receipt(
     received_at: date,
     supplier: Optional[str],
     memo: Optional[str],
+    description: Optional[str] = None,
 ) -> int:
     if item_id is None:
-        item = InventoryItem(name=name, image_url=image_url)
+        item = InventoryItem(name=name, image_url=image_url, description=description)
         db.add(item)
         db.flush()
         item_id = item.item_id
@@ -229,6 +231,15 @@ def create_receipt(
     ))
     db.commit()
     return item_id
+
+
+def update_item_description(db: Session, item_id: int, description: Optional[str]) -> bool:
+    item = db.get(InventoryItem, item_id)
+    if not item:
+        return False
+    item.description = description
+    db.commit()
+    return True
 
 
 # 입고 기록을 고치거나 지울 때 이미 상품에 올렸거나 팔린 수량보다 입고 합계가 적어지면 안 된다

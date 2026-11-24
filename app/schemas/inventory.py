@@ -30,6 +30,7 @@ class InventoryItemResponse(BaseModel):
     name: str
     image_url: Optional[str] = None
     memo: Optional[str] = None
+    description: Optional[str] = None
     total_received: int
     reserved: int
     sold: int
@@ -49,3 +50,8 @@ class InventoryReceiptUpdate(BaseModel):
     received_at: Optional[date] = None
     supplier: Optional[str] = None
     memo: Optional[str] = None
+
+
+# 품목 설명(상품 설명 · 상품정보제공고시) 고치기
+class InventoryItemUpdate(BaseModel):
+    description: Optional[str] = None

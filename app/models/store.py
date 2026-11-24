@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, Enum, ForeignKey
+from sqlalchemy import Boolean, Column, Integer, String, Text, DateTime, Enum, ForeignKey
 from sqlalchemy.sql import func
 from app.database import Base
 
@@ -14,6 +14,8 @@ class StoreProduct(Base):
     price             = Column(Integer, nullable=False)
     stock             = Column(Integer, nullable=False)
     image_url         = Column(String(500), nullable=True)
+    # 응모 전환 막기 — 랜덤 상품처럼 응모로 돌리면 안 되는 결제 상점 상품 (상세에 "응모 전환" 칸이 안 보이고, 새 모금도 열리지 않는다)
+    funding_disabled  = Column(Boolean, nullable=False, default=False, server_default="0")
     deleted_at        = Column(DateTime, nullable=True)   # 관리자가 삭제한 시각 — 구매 내역이 참조하므로 행은 남기고 목록·상세에서만 숨긴다
     created_at        = Column(DateTime, server_default=func.now())
     updated_at        = Column(DateTime, server_default=func.now(), onupdate=func.now())

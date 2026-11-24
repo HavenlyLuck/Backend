@@ -19,6 +19,7 @@ def create_store_product(
     stock: int,
     image_url: Optional[str],
     inventory_item_id: Optional[int] = None,
+    funding_disabled: bool = False,
 ) -> StoreProduct:
     # 재고에서 고른 품목이면 판매 수량만큼 이 상품에 묶는다 (모자라면 InventoryError)
     if inventory_item_id is not None:
@@ -32,6 +33,7 @@ def create_store_product(
         price=price,
         stock=stock,
         image_url=image_url,
+        funding_disabled=funding_disabled,
     )
     db.add(product)
     db.flush()
