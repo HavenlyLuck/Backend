@@ -33,10 +33,12 @@ def create_raffle_product(
     image_url: str,
     duration_days: int,
     inventory_item_id: Optional[int] = None,
+    catalog_item_id: Optional[int] = None,
 ) -> RaffleProduct:
     # 재고에서 고른 품목이면 1개를 이 응모에 묶는다 (모자라면 InventoryError)
     if inventory_item_id is not None:
         inventory_crud.check_available(db, [(inventory_item_id, 1)])
+    inventory_crud.check_catalog_items(db, [catalog_item_id])
     starts_at = datetime.now(timezone.utc).replace(tzinfo=None)
     duration = (
         timedelta(minutes=RAFFLE_DURATION_OVERRIDE_MINUTES)
@@ -53,6 +55,7 @@ def create_raffle_product(
         image_url=image_url,
         starts_at=starts_at,
         ends_at=starts_at + duration,
+        catalog_item_id=catalog_item_id,
     )
     db.add(product)
     db.flush()
@@ -334,7 +337,7 @@ def _cancel_raffle(db: Session, product: RaffleProduct, reason: str) -> list[str
             .with_for_update()
             .first()
         )
-        if store_product:
+        if store_product and store_product.sale_mode != "regular":
             store_product.stock += 1
         # 응모 상품이 상점으로 돌아갔으니 이 응모를 찜한 기록도 지운다
         db.query(WishlistItem).filter(WishlistItem.raffle_product_id == product.raffle_product_id).delete(
@@ -631,7 +634,7 @@ def funding_blocked_reason(db: Session, store_product: StoreProduct) -> Optional
         return "이 상품은 응모로 전환할 수 없어요"
     if store_product.price < FUNDING_MIN_PRICE:
         return f"{FUNDING_MIN_PRICE:,}원 이상인 상품만 응모로 전환할 수 있어요"
-    if store_product.stock < 1:
+    if store_product.sale_mode != "regular" and store_product.stock < 1:
         return "재고가 없어 응모로 전환할 수 없어요"
     # 응모 상품과 중복 — 이 상품에서 전환된 응모가 아직 진행 중(추첨 전)이거나,
     # 같은 이름의 응모 상품이 진행 중이면 전환하지 않는다
@@ -698,7 +701,8 @@ def fulfill_store_funding(
         if reason:
             raise RaffleEntryError(reason)
         now = _utcnow()
-        store_product.stock -= 1
+        if store_product.sale_mode != "regular":   # 일반 상품은 개수가 없어 묶지 않는다
+            store_product.stock -= 1
         funding = RaffleProduct(
             admin_id=store_product.admin_id,
             product_name=store_product.product_name,
@@ -711,6 +715,7 @@ def fulfill_store_funding(
             starts_at=now,
             ends_at=now + timedelta(days=FUNDING_DURATION_DAYS),
             funding_store_product_id=store_product_id,
+            catalog_item_id=store_product.catalog_item_id,
         )
         db.add(funding)
         db.flush()

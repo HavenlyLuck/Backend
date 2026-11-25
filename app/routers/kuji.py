@@ -23,7 +23,8 @@ _prize_list = TypeAdapter(list[KujiPrizeCreate])
 
 
 # 쿠지 한 판 등록 (관리자 전용)
-# prizes는 JSON 문자열 — [{"tier": "upper"|"lower", "name", "quantity", "cost", "image_index"}]
+# prizes는 JSON 문자열 — [{"tier": "upper"|"lower", "name", "quantity", "cost", "image_index", "catalog_item_id", "point_amount"}]
+# point_amount: 쌀포인트 상(하위상만) — 뽑히면 보관함 대신 그만큼 쌀포인트를 바로 적립한다
 # 상품 사진은 prize_images로 여러 장 올리고, 각 상품의 image_index로 몇 번째 파일인지 가리킨다
 @router.post("", response_model=KujiSetAdminResponse)
 def create_kuji_set(
@@ -37,6 +38,7 @@ def create_kuji_set(
     last_one_cost: Optional[int] = Form(None),
     last_one_image: Optional[UploadFile] = File(None),
     last_one_inventory_item_id: Optional[int] = Form(None),
+    last_one_catalog_item_id: Optional[int] = Form(None),
     db: Session = Depends(get_db),
     admin: User = Depends(get_current_admin),
 ):
@@ -61,6 +63,14 @@ def create_kuji_set(
             raise HTTPException(status_code=400, detail="원가는 0 이상이어야 합니다")
         if it.image_index is not None and not 0 <= it.image_index < len(prize_images):
             raise HTTPException(status_code=400, detail="상품 사진 번호가 올바르지 않습니다")
+        if it.point_amount is not None:
+            if it.tier != "lower":
+                raise HTTPException(status_code=400, detail="쌀포인트 상은 하위상에만 넣을 수 있습니다")
+            if it.point_amount <= 0:
+                raise HTTPException(status_code=400, detail="쌀포인트 상의 포인트는 1 이상이어야 합니다")
+            # 쌀포인트 상은 실물이 아니다 — 재고·등록 상품 연결 없음
+            it.inventory_item_id = None
+            it.catalog_item_id = None
     # 등급은 상위상 → 하위상 순서로 A, B, … 를 매긴다
     items.sort(key=lambda it: 0 if it.tier == "upper" else 1)
     if not any(it.tier == "upper" for it in items) or not any(it.tier == "lower" for it in items):
@@ -87,14 +97,15 @@ def create_kuji_set(
 
     try:
         return _create_kuji(db, admin, title, description, image_url, ticket_price, items, uploaded,
-                            last_one_name, last_one_image_url, last_one_cost, last_one_inventory_item_id)
+                            last_one_name, last_one_image_url, last_one_cost, last_one_inventory_item_id,
+                            last_one_catalog_item_id if last_one_name else None)
     except inventory_crud.InventoryError as e:
         db.rollback()
         raise HTTPException(status_code=400, detail=str(e))
 
 
 def _create_kuji(db, admin, title, description, image_url, ticket_price, items, uploaded,
-                 last_one_name, last_one_image_url, last_one_cost, last_one_inventory_item_id):
+                 last_one_name, last_one_image_url, last_one_cost, last_one_inventory_item_id, last_one_catalog_item_id):
     return kuji_crud.create_kuji_set(
         db,
         admin_id=admin.user_id,
@@ -110,6 +121,8 @@ def _create_kuji(db, admin, title, description, image_url, ticket_price, items, 
                 "cost": it.cost,
                 "image_url": uploaded.get(it.image_index) if it.image_index is not None else None,
                 "inventory_item_id": it.inventory_item_id,
+                "catalog_item_id": it.catalog_item_id,
+                "point_amount": it.point_amount,
             }
             for it in items
         ],
@@ -117,6 +130,7 @@ def _create_kuji(db, admin, title, description, image_url, ticket_price, items, 
         last_one_image_url=last_one_image_url,
         last_one_cost=(last_one_cost or 0) if last_one_name else None,
         last_one_inventory_item_id=last_one_inventory_item_id,
+        last_one_catalog_item_id=last_one_catalog_item_id,
     )
 
 
@@ -200,7 +214,7 @@ def build_draw_response(db: Session, kuji, drawn, conflicts: list[int], got_last
         drawn=[
             KujiDrawnPrize(
                 ticket_number=t.ticket_number, kuji_prize_id=p.kuji_prize_id, grade=p.grade,
-                tier=p.tier, name=p.name, image_url=p.image_url,
+                tier=p.tier, name=p.name, image_url=p.image_url, point_amount=p.point_amount,
             )
             for t, p in drawn
         ],

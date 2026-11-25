@@ -16,6 +16,10 @@ class StoreProduct(Base):
     image_url         = Column(String(500), nullable=True)
     # 응모 전환 막기 — 랜덤 상품처럼 응모로 돌리면 안 되는 결제 상점 상품 (상세에 "응모 전환" 칸이 안 보이고, 새 모금도 열리지 않는다)
     funding_disabled  = Column(Boolean, nullable=False, default=False, server_default="0")
+    # 판매 방식 — limited(한정): 올린 개수만큼 팔고 다 팔리면 매진, regular(일반): 개수 없이 계속 판다(재고 확인·차감 안 함)
+    sale_mode         = Column(Enum("limited", "regular", name="store_sale_mode"), nullable=False, default="limited", server_default="limited")
+    # 등록 상품(inventory_items) 연결 — 재고 확인·묶기 없이 "어떤 물건인지"만 (장부용)
+    catalog_item_id   = Column(Integer, ForeignKey("inventory_items.item_id"), nullable=True)
     deleted_at        = Column(DateTime, nullable=True)   # 관리자가 삭제한 시각 — 구매 내역이 참조하므로 행은 남기고 목록·상세에서만 숨긴다
     created_at        = Column(DateTime, server_default=func.now())
     updated_at        = Column(DateTime, server_default=func.now(), onupdate=func.now())

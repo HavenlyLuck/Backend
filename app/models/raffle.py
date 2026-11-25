@@ -28,6 +28,8 @@ class RaffleProduct(Base):
     # 상점 상품에서 전환 모금으로 만들어진 응모 — 재고 1개를 묶어 두고, 응모가 취소되면 상점으로 돌려준다
     funding_store_product_id = Column(Integer, ForeignKey("store_products.store_product_id"), nullable=True, index=True)
     converted_at         = Column(DateTime, nullable=True)     # 모금이 1/3을 넘어 응모 상품으로 전환된 시각
+    # 등록 상품(inventory_items) 연결 — 재고 확인·묶기 없이 "어떤 물건인지"만. 장부가 매입 원가를 찾는 데 쓴다
+    catalog_item_id      = Column(Integer, ForeignKey("inventory_items.item_id"), nullable=True)
     created_at           = Column(DateTime, server_default=func.now())
     updated_at           = Column(DateTime, server_default=func.now(), onupdate=func.now())
 

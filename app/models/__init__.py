@@ -16,3 +16,4 @@ from app.models.privacy import WithdrawnUser, AdminAccessLog
 from app.models.wishlist import WishlistItem
 from app.models.auth_throttle import AuthThrottle
 from app.models.alimtalk import AlimtalkMessage
+from app.models.idea_contest import IdeaContestEntry, IdeaContestLike, IdeaContestWeek

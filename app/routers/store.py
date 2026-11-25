@@ -31,6 +31,8 @@ def create_store_product(
     image: Optional[UploadFile] = File(None),
     inventory_item_id: Optional[int] = Form(None),
     funding_disabled: bool = Form(False),
+    sale_mode: Literal["limited", "regular"] = Form("limited"),   # 한정 / 일반(개수 없이 계속 판매)
+    catalog_item_id: Optional[int] = Form(None),                   # 등록 상품 연결 (재고 확인·묶기 없음, 장부용)
     db: Session = Depends(get_db),
     admin: User = Depends(get_current_admin),
 ):
@@ -55,6 +57,8 @@ def create_store_product(
             image_url=image_url,
             inventory_item_id=inventory_item_id,
             funding_disabled=funding_disabled and pay_type == "cash",
+            sale_mode=sale_mode,
+            catalog_item_id=catalog_item_id,
         )
     except inventory_crud.InventoryError as e:
         db.rollback()

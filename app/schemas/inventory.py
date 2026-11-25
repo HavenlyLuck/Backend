@@ -11,6 +11,7 @@ class InventoryReceiptResponse(BaseModel):
     received_at: date
     supplier: Optional[str] = None
     memo: Optional[str] = None
+    tax_free: bool = False      # 면세 입고
     created_at: datetime
 
     class Config:
@@ -50,8 +51,10 @@ class InventoryReceiptUpdate(BaseModel):
     received_at: Optional[date] = None
     supplier: Optional[str] = None
     memo: Optional[str] = None
+    tax_free: Optional[bool] = None
 
 
-# 품목 설명(상품 설명 · 상품정보제공고시) 고치기
+# 품목 이름 · 설명(상품 설명 · 상품정보제공고시) 고치기 — 보낸 칸만 바꾼다
 class InventoryItemUpdate(BaseModel):
+    name: Optional[str] = None
     description: Optional[str] = None

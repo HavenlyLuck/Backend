@@ -1,5 +1,5 @@
 from collections import defaultdict
-from datetime import date
+from datetime import date, datetime, timezone
 from typing import Optional
 
 from sqlalchemy import func
@@ -147,19 +147,38 @@ def _summaries(db: Session, items: list[InventoryItem], with_detail: bool = Fals
     return result
 
 
+def _active_item(db: Session, item_id: int) -> Optional[InventoryItem]:
+    return db.query(InventoryItem).filter(InventoryItem.item_id == item_id, InventoryItem.deleted_at.is_(None)).first()
+
+
+# 게시할 때 고른 등록 상품이 있는지 — 재고 확인·묶기 없이 연결만 하므로 존재만 본다 (지운 상품도 허용)
+def check_catalog_items(db: Session, item_ids) -> None:
+    ids = {i for i in item_ids if i is not None}
+    if not ids:
+        return
+    found = {i for (i,) in db.query(InventoryItem.item_id).filter(InventoryItem.item_id.in_(ids))}
+    if ids - found:
+        raise InventoryError("등록 상품을 찾을 수 없습니다")
+
+
 def get_items(db: Session) -> list[dict]:
-    items = db.query(InventoryItem).order_by(InventoryItem.created_at.desc(), InventoryItem.item_id.desc()).all()
+    items = db.query(InventoryItem).filter(InventoryItem.deleted_at.is_(None)).order_by(InventoryItem.created_at.desc(), InventoryItem.item_id.desc()).all()
     return _summaries(db, items)
 
 
 def get_item_detail(db: Session, item_id: int) -> Optional[dict]:
-    item = db.get(InventoryItem, item_id)
+    item = _active_item(db, item_id)
     return _summaries(db, [item], with_detail=True)[0] if item else None
 
 
 def _lock_item_summary(db: Session, item_id: int) -> dict:
     # 같은 품목으로 동시에 상품을 올려도 재고보다 많이 묶이지 않게 품목 행을 잠근다
-    item = db.query(InventoryItem).filter(InventoryItem.item_id == item_id).with_for_update().first()
+    item = (
+        db.query(InventoryItem)
+        .filter(InventoryItem.item_id == item_id, InventoryItem.deleted_at.is_(None))
+        .with_for_update()
+        .first()
+    )
     if not item:
         raise InventoryError("재고 품목을 찾을 수 없습니다")
     return _summaries(db, [item])[0]
@@ -218,26 +237,48 @@ def create_receipt(
     supplier: Optional[str],
     memo: Optional[str],
     description: Optional[str] = None,
+    tax_free: bool = False,
 ) -> int:
     if item_id is None:
         item = InventoryItem(name=name, image_url=image_url, description=description)
         db.add(item)
         db.flush()
         item_id = item.item_id
-    elif not db.get(InventoryItem, item_id):
+    elif not _active_item(db, item_id):
         raise InventoryError("재고 품목을 찾을 수 없습니다")
     db.add(InventoryReceipt(
         item_id=item_id, quantity=quantity, unit_cost=unit_cost, received_at=received_at, supplier=supplier, memo=memo,
+        tax_free=tax_free,
     ))
     db.commit()
     return item_id
 
 
-def update_item_description(db: Session, item_id: int, description: Optional[str]) -> bool:
-    item = db.get(InventoryItem, item_id)
+# 상품 등록 — 입고 기록 없이 품목(이름 · 사진 · 설명)만 만든다
+def create_item(db: Session, name: str, image_url: Optional[str], description: Optional[str]) -> int:
+    item = InventoryItem(name=name, image_url=image_url, description=description)
+    db.add(item)
+    db.commit()
+    return item.item_id
+
+
+# 이름 · 설명 고치기 — changes에 들어 있는 칸만 바꾼다
+def update_item(db: Session, item_id: int, changes: dict) -> bool:
+    item = _active_item(db, item_id)
     if not item:
         return False
-    item.description = description
+    for key, value in changes.items():
+        setattr(item, key, value)
+    db.commit()
+    return True
+
+
+# 상품 등록에서 지우기 — 목록에서만 숨긴다. 이미 게시한 상품은 내용을 복사해 갔으므로 그대로 남는다
+def delete_item(db: Session, item_id: int) -> bool:
+    item = _active_item(db, item_id)
+    if not item:
+        return False
+    item.deleted_at = datetime.now(timezone.utc).replace(tzinfo=None)
     db.commit()
     return True
 
@@ -286,6 +327,21 @@ def get_avg_costs(db: Session) -> dict[int, int]:
     for r in db.query(InventoryReceipt):
         receipts[r.item_id].append(r)
     return {item_id: average_cost(rs) for item_id, rs in receipts.items()}
+
+
+# 등록 상품별 매입 평균 단가 — 단가 0인 기록(등록 때 만든 빈 기록)은 뺀다. 매입 기록이 없으면 빠진다
+def get_purchase_avg_costs(db: Session, item_ids) -> dict[int, int]:
+    ids = {i for i in item_ids if i is not None}
+    if not ids:
+        return {}
+    rows = (
+        db.query(InventoryReceipt.item_id,
+                 func.sum(InventoryReceipt.quantity * InventoryReceipt.unit_cost), func.sum(InventoryReceipt.quantity))
+        .filter(InventoryReceipt.item_id.in_(ids), InventoryReceipt.unit_cost > 0, InventoryReceipt.quantity > 0)
+        .group_by(InventoryReceipt.item_id)
+        .all()
+    )
+    return {item_id: round(int(total) / int(qty)) for item_id, total, qty in rows if qty}
 
 
 def get_link_map(db: Session) -> dict[tuple[str, int], int]:

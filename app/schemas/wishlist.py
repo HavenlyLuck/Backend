@@ -12,4 +12,5 @@ class WishlistItemResponse(BaseModel):
     pay_type: Literal["cash", "ssal"]
     price: int
     stock: int
+    sale_mode: Literal["limited", "regular"] = "limited"   # 일반 상품은 stock 0이어도 판매 중
     wished_at: Optional[datetime] = None

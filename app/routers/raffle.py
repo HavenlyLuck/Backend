@@ -28,6 +28,7 @@ def create_raffle_product(
     image: UploadFile = File(...),
     duration_days: int = Form(1),
     inventory_item_id: Optional[int] = Form(None),
+    catalog_item_id: Optional[int] = Form(None),   # 등록 상품 연결 (재고 확인·묶기 없음, 장부용)
     db: Session = Depends(get_db),
     admin: User = Depends(get_current_admin),
 ):
@@ -47,6 +48,7 @@ def create_raffle_product(
             image_url=image_url,
             duration_days=duration_days,
             inventory_item_id=inventory_item_id,
+            catalog_item_id=catalog_item_id,
         )
     except inventory_crud.InventoryError as e:
         db.rollback()

@@ -26,6 +26,7 @@ class RaffleProductResponse(BaseModel):
     drand_signature: Optional[str] = None
     funding_store_product_id: Optional[int] = None   # 상점 상품에서 전환 모금으로 만들어진 응모면 그 상점 상품
     converted_at: Optional[datetime] = None          # 응모 상품으로 전환된 시각
+    catalog_item_id: Optional[int] = None            # 등록 상품 (장부용)
 
     class Config:
         from_attributes = True

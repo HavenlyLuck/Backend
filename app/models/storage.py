@@ -14,7 +14,10 @@ class StorageItem(Base):
     quantity          = Column(Integer, nullable=False, default=1, server_default="1")
     amount_spent      = Column(Integer, nullable=True)     # 쓴 금액 스냅샷 — 결제 상점·쿠지는 원, 쌀포인트 상점은 쌀포인트
     payment_id        = Column(String(64), ForeignKey("payments.payment_id"), nullable=True)   # 카드 결제로 받은 경우 그 결제
-    status            = Column(Enum("ready", "requested", "shipped", name="storage_status"), nullable=False, default="ready", server_default="ready")
+    # converted: 보관 기한(30일) 안에 배송 신청하지 않아 쌀 응모권으로 바뀐 상품 — 보관함에서는 빠지고 장부용으로 행만 남는다
+    status            = Column(Enum("ready", "requested", "shipped", "converted", name="storage_status"), nullable=False, default="ready", server_default="ready")
+    converted_at      = Column(DateTime, nullable=True)    # 쌀 응모권으로 바뀐 시각
+    convert_tickets   = Column(Integer, nullable=True)     # 그때 준 쌀 응모권 장수
     address_id        = Column(Integer, ForeignKey("shipping_addresses.address_id"), nullable=True)   # 배송 신청 시 선택한 배송지
     shipping_payment_id = Column(String(64), ForeignKey("payments.payment_id"), nullable=True, index=True)  # 배송 신청 때 낸 배송비 결제 (같이 신청한 상품끼리 같다)
     requested_at      = Column(DateTime, nullable=True)

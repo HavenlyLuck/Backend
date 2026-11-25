@@ -16,9 +16,10 @@ class ReferralRegisterRequest(BaseModel):
 
 
 # 보관함의 무료 응모권 — first_purchase: 첫 구매 선물(related = 나를 추천한 사람), referral: 추천 응모권(related = 내가 추천한 사람),
-# signup_event: 오픈 이벤트 가입 선물, store_purchase: 쌀포인트 상점에서 산 응모권
+# signup_event: 오픈 이벤트 가입 선물, store_purchase: 쌀포인트 상점에서 산 응모권,
+# idea_contest: 아바타 아이디어 공모전 수상
 class FreeTicketResponse(BaseModel):
     free_ticket_id: int
-    kind: Literal["first_purchase", "referral", "signup_event", "store_purchase"]
+    kind: Literal["first_purchase", "referral", "signup_event", "store_purchase", "idea_contest", "storage_convert"]
     related_nickname: Optional[str] = None
     created_at: datetime
