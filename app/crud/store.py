@@ -1,9 +1,12 @@
-from sqlalchemy import or_
+from datetime import datetime, timedelta, timezone
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 from typing import Optional
 
 from app.models.store import StoreProduct
 from app.models.raffle import RaffleProduct
+from app.models.free_ticket import FreeTicket
+from app.models.user import User
 from app.crud import storage as storage_crud
 from app.crud import inventory as inventory_crud
 
@@ -82,6 +85,70 @@ def get_store_product_for_update(db: Session, store_product_id: int) -> Optional
 
 class StorePurchaseError(Exception):
     pass
+
+
+# 쌀포인트 상점의 쿠폰(쌀 응모권) — 사면 보관함에 쌀 응모권이 바로 들어간다 (배송 상품이 아니다)
+# 계정당 한 주(한국 시간 월요일 0시 ~ 다음 월요일 0시)에 이 장수까지만 살 수 있다
+TICKET_CATEGORY = "coupon"
+TICKET_WEEKLY_LIMIT = 2
+_KST = timedelta(hours=9)
+
+
+def _utcnow() -> datetime:
+    return datetime.now(timezone.utc).replace(tzinfo=None)
+
+
+# 이번 주 시작 시각(한국 시간 월요일 0시)을 UTC로
+def _week_start_utc(now: datetime) -> datetime:
+    kst = now + _KST
+    monday = (kst - timedelta(days=kst.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    return monday - _KST
+
+
+def is_ticket_product(product: StoreProduct) -> bool:
+    return product.pay_type == "ssal" and product.category == TICKET_CATEGORY
+
+
+# 이번 주에 상점에서 산 쌀 응모권 장수 (쓴 것 포함)
+def tickets_bought_this_week(db: Session, user_id: int) -> int:
+    return (
+        db.query(func.count(FreeTicket.free_ticket_id))
+        .filter(
+            FreeTicket.user_id == user_id,
+            FreeTicket.kind == "store_purchase",
+            FreeTicket.created_at >= _week_start_utc(_utcnow()),
+        )
+        .scalar()
+    ) or 0
+
+
+# 쌀 응모권 구매 — 주간 한도 확인, 재고 차감, 쌀 응모권 지급 (commit은 호출한 쪽에서)
+# 같은 사람이 동시에 사도 한도를 넘지 않게 회원 행을 잠그고 센다. 지급한 응모권 목록을 돌려준다
+def fulfill_ticket_purchase(db: Session, store_product_id: int, user_id: int, quantity: int):
+    if quantity <= 0:
+        raise StorePurchaseError("구매 수량은 1개 이상이어야 합니다")
+    db.query(User.user_id).filter(User.user_id == user_id).with_for_update().first()
+    product = get_store_product_for_update(db, store_product_id)
+    if not product or product.deleted_at is not None:
+        raise StorePurchaseError("상품을 찾을 수 없습니다")
+    if not is_ticket_product(product):
+        raise StorePurchaseError("쌀 응모권 상품이 아닙니다")
+    bought = tickets_bought_this_week(db, user_id)
+    if bought + quantity > TICKET_WEEKLY_LIMIT:
+        left = max(TICKET_WEEKLY_LIMIT - bought, 0)
+        raise StorePurchaseError(
+            f"쌀 응모권은 한 주에 {TICKET_WEEKLY_LIMIT}장까지 살 수 있어요"
+            + (f" (이번 주 {left}장 더 살 수 있어요)" if left else ". 다음 주 월요일에 다시 살 수 있어요")
+        )
+    if product.stock < quantity:
+        raise StorePurchaseError("재고가 부족합니다")
+
+    product.stock -= quantity
+    now = _utcnow()
+    tickets = [FreeTicket(user_id=user_id, kind="store_purchase", created_at=now) for _ in range(quantity)]
+    db.add_all(tickets)
+    db.flush()
+    return product, tickets
 
 
 # 상점 구매 — 재고 차감과 보관함 적재 (commit은 호출한 쪽에서). 재고 부족이면 StorePurchaseError
