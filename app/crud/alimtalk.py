@@ -4,6 +4,7 @@
 import logging
 import re
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy import func
@@ -37,6 +38,8 @@ def _enqueue(db: Session, kind: str, user_id: int, dedup_key: str, data: dict) -
     exists = db.query(AlimtalkMessage.message_id).filter(AlimtalkMessage.dedup_key == dedup_key).first()
     if exists:
         return
+    # DB 합계(SUM)는 MySQL에서 Decimal로 온다 — JSON 칸에 넣을 수 있게 정수로 바꾼다
+    data = {k: int(v) if isinstance(v, Decimal) else v for k, v in data.items()}
     now = _utcnow()
     db.add(AlimtalkMessage(
         dedup_key=dedup_key, user_id=user_id, kind=kind, data=data,
@@ -57,8 +60,9 @@ def enqueue_raffle_entered(db: Session, product: RaffleProduct, entry: RaffleEnt
         "product_name": product.product_name,
         "ticket_count": entry.ticket_count,
         "payment": _won(entry.amount_paid) if entry.amount_paid else f"쌀 응모권 {entry.ticket_count}장 사용",
-        "sold": sold_after,
-        "total": product.total_slots,
+        # MySQL은 SUM 결과를 Decimal로 돌려준다 — JSON에 넣을 수 있게 int로
+        "sold": int(sold_after),
+        "total": int(product.total_slots),
     })
 
 
