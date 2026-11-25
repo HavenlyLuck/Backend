@@ -18,6 +18,7 @@ from app.crud import inventory as inventory_crud
 from app.services import portone
 from app.services import drand
 from app.crud import referral as referral_crud
+from app.crud import alimtalk as alimtalk_crud
 from app.models.free_ticket import FreeTicket
 from app.models.store import StoreProduct
 from app.models.wishlist import WishlistItem
@@ -171,12 +172,13 @@ def fulfill_raffle_entry(
         entry_number=entry_number,
         payment_id=payment_id,
     )
+    alimtalk_crud.enqueue_raffle_entered(db, product, entry, sold + ticket_count)
     # 전환 모금 중이면 이번 구매로 1/3을 넘었는지 확인해 응모 상품으로 전환한다
     if product.status == "funding" and sold + ticket_count >= funding_threshold(product.total_slots):
         _convert_funding(product)
     # 이번 구매로 매진됐으면 매진 시각을 남긴다 — 이 시각부터 RAFFLE_DRAW_DELAY_SECONDS 뒤에 자동 추첨
     if sold + ticket_count >= product.total_slots:
-        mark_sold_out(product, _utcnow())
+        mark_sold_out(db, product, _utcnow())
     # 추천인을 등록한 사람의 첫 응모권 구매면 본인·추천인에게 무료 응모권을 1장씩 준다
     referral_crud.grant_first_purchase_reward(db, user_id)
     return entry
@@ -205,12 +207,13 @@ def enter_with_free_tickets(db: Session, raffle_product_id: int, user_id: int, c
         entry_number=entry_number,
         payment_id=None,
     )
+    alimtalk_crud.enqueue_raffle_entered(db, product, entry, sold + count)
     now = _utcnow()
     for t in tickets:
         t.raffle_entry_id = entry.entry_id
         t.used_at = now
     if sold + count >= product.total_slots:
-        mark_sold_out(product, now)
+        mark_sold_out(db, product, now)
     db.commit()
     db.refresh(entry)
     return entry
@@ -304,6 +307,8 @@ def cancel_expired_raffles(db: Session) -> None:
             "응모 전환 모금이 기간 안에 모이지 않아 취소되었습니다" if product.status == "funding"
             else "응모 기간 안에 매진되지 않아 응모가 취소되었습니다"
         )
+        # 응모 실패(자동 취소) 알림톡 — 그때 남아 있던 응모자에게 환불 내역과 함께 (관리자 취소는 보내지 않는다)
+        alimtalk_crud.enqueue_raffle_failed(db, product)
         _cancel_raffle(db, product, reason)
     db.commit()
 
@@ -770,9 +775,15 @@ def get_draw_at(product: RaffleProduct) -> Optional[datetime]:
 
 # 매진 처리 — 매진 시각과 함께 추첨에 쓸 drand 라운드(매진 + 대기 시간 이후 처음 나오는 라운드)를 정해 둔다.
 # 매진 뒤에는 응모 취소가 막혀 응모자 명단이 고정되므로, 명단이 확정된 다음에야 나오는 난수로 추첨하게 된다
-def mark_sold_out(product: RaffleProduct, now: datetime) -> None:
+def mark_sold_out(db: Session, product: RaffleProduct, now: datetime) -> None:
     product.sold_out_at = now
     product.drand_round = drand.round_at(now + timedelta(seconds=RAFFLE_DRAW_DELAY_SECONDS))
+    # 응모자 모두에게 응모 완성(매진·추첨 예정 시각) 알림톡 — 방금 만든 응모까지 세도록 먼저 DB에 반영한다
+    db.flush()
+    alimtalk_crud.enqueue_raffle_sold_out(
+        db, product, get_draw_at(product),
+        [(user_id, tickets) for user_id, tickets, _ in get_user_ticket_totals(db, product.raffle_product_id)],
+    )
 
 
 # 응모권 수만큼 가중치를 둔 추첨 — 응모권 1장 = 당첨 칸 1개.
@@ -814,7 +825,7 @@ def run_due_draws(db: Session) -> None:
             continue
         # 매진 시각이 기록되기 전에 매진된 상품은 처음 발견한 지금부터 대기 시간을 센다
         if product.sold_out_at is None:
-            mark_sold_out(product, now)
+            mark_sold_out(db, product, now)
             db.commit()
             continue
         # drand 도입 전에 매진된 상품 — 매진 뒤에는 명단이 바뀌지 않으므로 추첨 시각 기준으로 라운드를 정한다

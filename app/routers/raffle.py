@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from typing import Optional, Literal
 
 from app.database import get_db
-from app.core.dependencies import get_current_admin, get_current_user
+from app.core.dependencies import get_current_admin, get_current_user, has_admin_access
 from app.core.config import RAFFLE_TICKET_PRICE, RAFFLE_DURATION_DAYS_OPTIONS
 from app.models.user import User
 from app.schemas.raffle import (
@@ -205,7 +205,7 @@ def get_raffle_draw_cast(
     product = raffle_crud.get_raffle_product(db, raffle_product_id)
     if not product:
         raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다")
-    if not user.is_admin and not raffle_crud.has_entered(db, raffle_product_id, user.user_id):
+    if not has_admin_access(user) and not raffle_crud.has_entered(db, raffle_product_id, user.user_id):
         raise HTTPException(status_code=403, detail="이 응모에 참여한 사람만 볼 수 있습니다")
     if product.sold_out_at is None and product.status != "completed":
         raise HTTPException(status_code=400, detail="아직 응모권이 매진되지 않았습니다")

@@ -14,3 +14,5 @@ from app.models.free_ticket import FreeTicket
 from app.models.inventory import InventoryItem, InventoryReceipt, InventoryLink, Expense
 from app.models.privacy import WithdrawnUser, AdminAccessLog
 from app.models.wishlist import WishlistItem
+from app.models.auth_throttle import AuthThrottle
+from app.models.alimtalk import AlimtalkMessage

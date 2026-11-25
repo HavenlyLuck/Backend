@@ -4,7 +4,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_current_admin, get_current_user, get_optional_user, log_admin_access
+from app.core.dependencies import get_current_admin, get_current_user, get_optional_user, has_admin_access, log_admin_access
 from app.crud import review as review_crud
 from app.database import get_db
 from app.models.user import User
@@ -17,7 +17,7 @@ router = APIRouter()
 @router.get("", response_model=list[InquiryResponse])
 def list_inquiries(request: Request, db: Session = Depends(get_db), viewer: Optional[User] = Depends(get_optional_user)):
     # 관리자에게는 남의 비공개 문의 내용까지 보이므로 접속기록을 남긴다
-    if viewer is not None and viewer.is_admin:
+    if has_admin_access(viewer):
         log_admin_access(viewer, request)
     return review_crud.get_inquiries(db, viewer)
 
@@ -64,7 +64,7 @@ def update_inquiry(inquiry_id: int, body: InquiryCreate, db: Session = Depends(g
 @router.delete("/{inquiry_id}", status_code=204)
 def delete_inquiry(inquiry_id: int, request: Request, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     q = review_crud.get_inquiry(db, inquiry_id)
-    if not q or (q.user_id != user.user_id and not user.is_admin):
+    if not q or (q.user_id != user.user_id and not has_admin_access(user)):
         raise HTTPException(status_code=404, detail="문의를 찾을 수 없습니다")
     if q.user_id != user.user_id:
         log_admin_access(user, request)
