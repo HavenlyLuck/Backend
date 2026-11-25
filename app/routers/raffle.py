@@ -81,6 +81,7 @@ def list_raffle_products(
     sold_map = raffle_crud.get_sold_ticket_counts(db, [p.raffle_product_id for p in products])
     for p in products:
         p.sold_slots = sold_map.get(p.raffle_product_id, 0)
+    raffle_crud.attach_winner_nicknames(db, products)
     return products
 
 
@@ -101,6 +102,7 @@ def get_raffle_product(raffle_product_id: int, db: Session = Depends(get_db)):
     if not product:
         raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다")
     product.sold_slots = raffle_crud.get_sold_ticket_count(db, raffle_product_id)
+    raffle_crud.attach_winner_nicknames(db, [product])
     return product
 
 

@@ -1,9 +1,10 @@
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from datetime import datetime, timezone
 from typing import Optional
 
 from app.models.storage import StorageItem
-from app.models.raffle import RaffleProduct
+from app.models.raffle import RaffleProduct, RaffleEntry
 from app.models.store import StoreProduct
 from app.models.kuji import KujiSet, KujiPrize
 from app.models.payment import Payment
@@ -124,11 +125,23 @@ def _item_dict(item, raffle, store, kuji, prize) -> dict:
     }
 
 
-# 내 보관함 — 최신순
+# 내 보관함 — 최신순.
+# 응모 당첨 상품은 당첨자가 추첨 결과를 확인한 뒤(raffle_entries.result_checked_at)부터 보여준다 —
+# 결과 화면보다 보관함에서 먼저 당첨을 알게 되지 않게
 def get_user_storage_items(db: Session, user_id: int) -> list[dict]:
+    result_checked = (
+        db.query(RaffleEntry.entry_id)
+        .filter(
+            RaffleEntry.raffle_product_id == StorageItem.raffle_product_id,
+            RaffleEntry.user_id == user_id,
+            RaffleEntry.result_checked_at.isnot(None),
+        )
+        .exists()
+    )
     rows = (
         _storage_query(db)
         .filter(StorageItem.user_id == user_id)
+        .filter(or_(StorageItem.source != "raffle", result_checked))
         .order_by(StorageItem.created_at.desc(), StorageItem.storage_item_id.desc())
         .all()
     )

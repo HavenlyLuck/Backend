@@ -87,6 +87,16 @@ def get_raffle_product_for_update(db: Session, raffle_product_id: int) -> Option
     )
 
 
+# 응답에 당첨자 닉네임을 붙인다 (RaffleProductResponse.winner_nickname). 탈퇴한 당첨자는 비워 둔다
+def attach_winner_nicknames(db: Session, products: list[RaffleProduct]) -> None:
+    ids = {p.winner_user_id for p in products if p.winner_user_id}
+    names = dict(
+        db.query(User.user_id, User.nickname).filter(User.user_id.in_(ids), User.deleted_at.is_(None))
+    ) if ids else {}
+    for p in products:
+        p.winner_nickname = names.get(p.winner_user_id)
+
+
 def get_sold_ticket_count(db: Session, raffle_product_id: int) -> int:
     return (
         db.query(func.coalesce(func.sum(RaffleEntry.ticket_count), 0))

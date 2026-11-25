@@ -136,12 +136,9 @@ def _finish(msg: AlimtalkMessage, status: str, error: Optional[str] = None) -> N
 def send_pending(db: Session) -> None:
     now = _utcnow()
 
-    # 솔라피 설정이 없으면 쌓인 알림은 보내지 않은 것으로 정리한다 (나중에 설정해도 지난 알림이 몰려 나가지 않게)
+    # 이 서버에 솔라피 설정이 없으면 알림을 건드리지 않는다 — 같은 DB를 쓰는 다른 서버(설정 있는 쪽)가 보낸다.
+    # 끝내 아무도 못 보내면 STALE_AFTER가 지난 뒤 설정 있는 서버가 '너무 오래 대기'로 정리한다
     if not alimtalk_service.is_configured():
-        db.query(AlimtalkMessage).filter(AlimtalkMessage.status == "pending").update(
-            {"status": "skipped", "error": "솔라피 설정(API 키·pfId)이 없어 보내지 않았어요"}, synchronize_session=False,
-        )
-        db.commit()
         return
 
     db.query(AlimtalkMessage).filter(
@@ -171,6 +168,9 @@ def send_pending(db: Session) -> None:
             _finish(msg, "skipped", "너무 오래 대기해 보내지 않았어요")
             continue
         if len(claimed) >= SEND_BATCH or msg.user_id in busy_users:
+            continue
+        # 이 서버에 그 알림의 템플릿 ID가 없으면 대기로 둔다 (설정 있는 서버가 보내거나, 설정을 넣으면 나간다)
+        if not alimtalk_service.template_id(msg.kind):
             continue
         busy_users.add(msg.user_id)   # 한 회원에게는 한 번에 하나씩
         msg.status = "sending"
