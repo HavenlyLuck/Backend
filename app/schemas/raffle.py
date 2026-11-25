@@ -18,6 +18,7 @@ class RaffleProductResponse(BaseModel):
     drawn_at: Optional[datetime] = None
     winner_entry_number: Optional[int] = None
     winner_user_id: Optional[int] = None
+    winner_nickname: Optional[str] = None   # 당첨자 닉네임 (화면에서 일부를 가려 보여준다)
     draw_video_url: Optional[str] = None
     # drand 공개 난수 추첨 정보 — 라운드는 매진 순간 정해지고, 난수·서명은 추첨 뒤에 채워진다
     drand_round: Optional[int] = None
