@@ -47,8 +47,8 @@ settings = Settings()
 
 # 배송 신청 1건당 배송비(원) — 한 번에 신청한 상품은 한 박스로 보내므로 몇 개든 1번만 낸다
 SHIPPING_FEE = 4000
-# 결제 상점 구매 때 쌀포인트로 할인받을 수 있는 최대 비율 (구매 금액의 10%, 1P = 1원)
-STORE_POINT_DISCOUNT_RATE_PERCENT = 10
+# 결제 상점 구매 때 쌀포인트로 할인받을 수 있는 최대 비율 (구매 금액의 20%, 1P = 1원)
+STORE_POINT_DISCOUNT_RATE_PERCENT = 20
 
 # 응모권 1장당 가격 (운포인트, 고정값)
 RAFFLE_TICKET_PRICE = 1000

@@ -20,7 +20,7 @@ class PaymentPrepareRequest(BaseModel):
     quantity: Optional[int] = None
     ticket_numbers: Optional[list[int]] = None
     storage_item_ids: Optional[list[int]] = None
-    point_use: int = 0                  # store_purchase: 할인에 쓸 쌀포인트 (구매 금액의 10%까지, 1P = 1원)
+    point_use: int = 0                  # store_purchase: 할인에 쓸 쌀포인트 (구매 금액의 20%까지, 1P = 1원)
 
 
 # 결제창 구매자 정보 (이름·전화번호·이메일)
