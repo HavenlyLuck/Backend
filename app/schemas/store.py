@@ -46,6 +46,9 @@ class StoreFundingStatus(BaseModel):
 
 class StoreProductDetailResponse(StoreProductResponse):
     funding: Optional[StoreFundingStatus] = None   # 결제 상점 상품만 (쌀포인트 상점은 없음)
+    # 쌀 응모권(쿠폰) 상품만 — 계정당 한 주에 살 수 있는 장수, 로그인했으면 이번 주에 이미 산 장수
+    weekly_limit: Optional[int] = None
+    bought_this_week: Optional[int] = None
 
 
 class StorePurchaseRequest(BaseModel):
@@ -53,12 +56,13 @@ class StorePurchaseRequest(BaseModel):
 
 
 class StorePurchaseResponse(BaseModel):
-    storage_item_id: int
+    storage_item_id: Optional[int] = None   # 쌀 응모권 상품은 보관함 상품이 아니라 쌀 응모권으로 받으므로 없다
     store_product_id: int
     quantity: int
     amount_spent: int
     pay_type: Literal["cash", "ssal"]
     remaining_stock: int
+    free_tickets: int = 0   # 쌀 응모권 상품: 받은 쌀 응모권 장수
     point_used: int = 0   # 결제 상점: 할인에 쓴 쌀포인트 (카드 결제 금액 = amount_spent - point_used)
 
 

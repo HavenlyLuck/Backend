@@ -129,6 +129,10 @@ def get_store_product(
     # 결제 상점 상품은 응모 전환 모금 현황을 함께 내려준다 (응모 전환을 막은 상품은 내려주지 않아 칸이 안 보인다)
     if product.pay_type == "cash" and not product.funding_disabled:
         response.funding = raffle_crud.get_funding_status(db, product, viewer)
+    if store_crud.is_ticket_product(product):
+        response.weekly_limit = store_crud.TICKET_WEEKLY_LIMIT
+        if viewer:
+            response.bought_this_week = store_crud.tickets_bought_this_week(db, viewer.user_id)
     return response
 
 
@@ -146,6 +150,32 @@ def purchase_store_product(
         raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다")
     if product.pay_type != "ssal":
         raise HTTPException(status_code=400, detail="카드 결제로 구매하는 상품입니다")
+
+    # 쌀 응모권(쿠폰) — 보관함 상품 대신 쌀 응모권을 바로 넣는다 (한 주 한도 있음)
+    if store_crud.is_ticket_product(product):
+        try:
+            product, tickets = store_crud.fulfill_ticket_purchase(db, store_product_id, user.user_id, payload.quantity)
+            point_crud.apply_point_change(
+                db,
+                user_id=user.user_id,
+                amount=-product.price * payload.quantity,
+                reason="store_purchase",
+                reference_id=tickets[0].free_ticket_id,
+                description=f"{product.product_name} 구매 ({payload.quantity}장)",
+            )
+        except (store_crud.StorePurchaseError, ValueError) as e:
+            db.rollback()
+            raise HTTPException(status_code=400, detail=str(e))
+        db.commit()
+        return {
+            "storage_item_id": None,
+            "store_product_id": product.store_product_id,
+            "quantity": payload.quantity,
+            "amount_spent": product.price * payload.quantity,
+            "pay_type": product.pay_type,
+            "remaining_stock": product.stock,
+            "free_tickets": len(tickets),
+        }
 
     try:
         product, item = store_crud.fulfill_store_purchase(db, store_product_id, user.user_id, payload.quantity, "ssal")
