@@ -1,5 +1,5 @@
 from datetime import datetime
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import Literal, Optional
 
 class UserSignup(BaseModel):
@@ -50,8 +50,19 @@ class PasswordChangeRequest(BaseModel):   # 비밀번호 변경 요청 (마이�
 
 
 class UserLogin(BaseModel):        # 로그인 요청
-    login_id: str
-    password: str
+    login_id: str = Field(max_length=100)
+    password: str = Field(max_length=200)
+    # 관리자 2단계 인증 코드 — 비밀번호가 맞으면 서버가 otp_required로 요청하고, 그때 같이 보낸다
+    otp_code: Optional[str] = Field(default=None, max_length=10)
+
+
+class TotpSetupResponse(BaseModel):    # 관리자 OTP 등록 시작 — 앱에 넣을 키와 등록 링크
+    secret: str
+    otpauth_uri: str
+
+
+class TotpEnableRequest(BaseModel):    # 관리자 OTP 등록 확인 — 앱에 뜬 6자리 코드
+    code: str = Field(max_length=10)
 
 class TokenResponse(BaseModel):    # 로그인 응답 (토큰 반환)
     access_token: str

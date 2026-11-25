@@ -11,6 +11,11 @@ class Settings(BaseSettings):
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     REFRESH_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 14  # 14일
+    # 앞단 프록시 수 — 접속 IP는 X-Forwarded-For의 뒤에서 이 번째 값을 쓴다 (app/core/dependencies.py client_ip)
+    # Azure App Service만 거치면 1, Cloudflare → Azure 순으로 거치면 2
+    TRUSTED_PROXY_COUNT: int = 1
+    # 관리자 OTP 비밀키 암호화 키. 비우면 SECRET_KEY에서 만든다 (그 경우 SECRET_KEY를 바꾸면 OTP를 다시 등록해야 한다)
+    TOTP_ENCRYPTION_KEY: Optional[str] = None
     CLOUDINARY_CLOUD_NAME: str
     CLOUDINARY_API_KEY: str
     CLOUDINARY_API_SECRET: str
@@ -22,6 +27,15 @@ class Settings(BaseSettings):
     PORTONE_STORE_ID: Optional[str] = None
     # 스마트택배(스윗트래커) 배송 조회 API 키 (tracking.sweettracker.co.kr 에서 발급). 없으면 배송 조회가 비활성화된다
     SWEETTRACKER_API_KEY: Optional[str] = None
+    # 솔라피 카카오 알림톡 (console.solapi.com) — API 키·시크릿, 카카오 채널 pfId, 템플릿 ID 4개.
+    # 키·pfId가 없으면 알림톡을 보내지 않는다. 템플릿 ID가 비어 있는 알림도 보내지 않는다 (app/services/alimtalk.py)
+    SOLAPI_API_KEY: Optional[str] = None
+    SOLAPI_API_SECRET: Optional[str] = None
+    SOLAPI_PF_ID: Optional[str] = None
+    SOLAPI_TEMPLATE_RAFFLE_ENTERED: Optional[str] = None    # 응모 완료 — 응모 접수
+    SOLAPI_TEMPLATE_RAFFLE_SOLD_OUT: Optional[str] = None   # 응모 완성 — 매진, 추첨 예정
+    SOLAPI_TEMPLATE_RAFFLE_FAILED: Optional[str] = None     # 응모 실패(자동 취소) — 기간 만료로 취소·환불
+    SOLAPI_TEMPLATE_SHIPPED: Optional[str] = None           # 배송 출발
     # 오픈 이벤트 — 이 날짜(한국 시간, 그날 포함)까지 가입하면 쌀 응모권 1장을 준다. 비우면(빈 문자열) 이벤트 없음
     SIGNUP_EVENT_END_DATE: Optional[str] = "2026-12-22"
 

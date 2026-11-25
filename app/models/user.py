@@ -18,6 +18,11 @@ class User(Base):
     avatar_config     = Column(JSON, nullable=True)   # 픽셀 캐릭터 커스터마이징 (app/schemas/avatar.py)
     trade_count       = Column(Integer, default=0)
     is_admin          = Column(Boolean, default=False, nullable=False, server_default="0")
+    # 관리자 2단계 인증(OTP 앱) — 비밀키는 암호화해서 둔다(app/core/totp.py). 설정 중이면 enabled_at이 비어 있다.
+    # last_step: 마지막으로 쓴 OTP의 30초 구간 번호 — 같은 코드를 두 번 쓰지 못하게 한다
+    totp_secret       = Column(String(255), nullable=True)
+    totp_enabled_at   = Column(DateTime, nullable=True)
+    totp_last_step    = Column(Integer, nullable=True)
     # 추천인 — 내 고유 코드, 나를 추천한 사람(한 번만 등록), 첫 응모권 구매로 추천 보상을 받은 시각
     referral_code        = Column(String(12), unique=True, nullable=True)
     referred_by_user_id  = Column(Integer, ForeignKey("users.user_id"), nullable=True)

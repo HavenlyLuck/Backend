@@ -6,6 +6,7 @@ from jose import JWTError
 from typing import Optional
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.database import get_db, SessionLocal
 from app.core.security import decode_token
 from app.models.user import User
@@ -31,17 +32,33 @@ def get_current_user(
     user = db.query(User).filter(User.user_id == user_id, User.deleted_at.is_(None)).first()
     if not user:
         raise HTTPException(status_code=401, detail="사용자를 찾을 수 없습니다")
+    _mark_admin_mfa(user, payload)
     return user
+
+
+# 이 요청의 토큰이 관리자 2단계 인증(OTP)을 거쳐 발급됐는지 user에 표시해 둔다 (DB 컬럼이 아닌 요청 동안만 쓰는 값).
+# OTP를 DB에서 해제(totp_enabled_at 비움)하면 이미 받은 토큰도 관리자 권한을 잃는다
+def _mark_admin_mfa(user: User, payload: dict) -> None:
+    user.admin_mfa = payload.get("mfa") is True and user.totp_enabled_at is not None
+
+
+# 관리자 권한을 쓸 수 있는지 — is_admin이면서 2단계 인증을 거친 토큰이어야 한다.
+# 남의 비공개 문의 보기·후기 삭제처럼 일반 API 안에서 관리자 권한을 쓸 때 is_admin 대신 이걸 본다
+def has_admin_access(user: Optional[User]) -> bool:
+    return bool(user is not None and user.is_admin and getattr(user, "admin_mfa", False))
 
 
 ACTIONS = {"GET": "조회", "HEAD": "조회", "POST": "등록", "PUT": "수정", "PATCH": "수정", "DELETE": "삭제"}
 
 
-# 접속 IP — Azure 앞단 프록시를 거치면 X-Forwarded-For 첫 값이 실제 접속 IP다 (Azure는 "IP:포트" 형태로 줄 때가 있다)
+# 접속 IP — 앞단 프록시(Azure)는 X-Forwarded-For 맨 뒤에 실제 접속 IP를 덧붙인다 (Azure는 "IP:포트" 형태로 줄 때가 있다).
+# 맨 앞 값은 접속자가 헤더를 직접 보내 아무 값이나 넣을 수 있으므로 쓰지 않고, 뒤에서 TRUSTED_PROXY_COUNT 번째 값을 쓴다
+# (Cloudflare → Azure 순으로 거치면 맨 뒤는 Cloudflare 서버 IP이므로 2로 둔다)
 def client_ip(request: Request) -> Optional[str]:
-    forwarded = request.headers.get("x-forwarded-for")
+    forwarded = [p.strip() for p in (request.headers.get("x-forwarded-for") or "").split(",") if p.strip()]
     if forwarded:
-        ip = forwarded.split(",")[0].strip()
+        hops = max(1, settings.TRUSTED_PROXY_COUNT)
+        ip = forwarded[-hops] if len(forwarded) >= hops else forwarded[0]
         if ip.count(":") == 1:   # IPv4:포트
             ip = ip.split(":")[0]
         return ip.strip("[]")[:45] or None
@@ -77,9 +94,17 @@ def log_admin_access(admin: User, request: Request) -> None:
         raise HTTPException(status_code=503, detail="접속기록을 남기지 못해 요청을 처리하지 않았습니다. 잠시 후 다시 시도해 주세요")
 
 
+# 관리자 API — 2단계 인증(OTP)을 거친 토큰만 받는다. 프론트는 detail.code로 다음 화면을 정한다
+#   mfa_setup_required: 아직 OTP를 등록하지 않음 → 등록 화면 / mfa_required: OTP 없이 받은 예전 토큰 → 다시 로그인
 def get_current_admin(request: Request, user: User = Depends(get_current_user)) -> User:
     if not user.is_admin:
         raise HTTPException(status_code=403, detail="관리자 권한이 필요합니다")
+    if not has_admin_access(user):
+        if user.totp_enabled_at is None:
+            detail = {"code": "mfa_setup_required", "message": "관리자 2단계 인증(OTP)을 먼저 등록해주세요"}
+        else:
+            detail = {"code": "mfa_required", "message": "2단계 인증으로 다시 로그인해주세요"}
+        raise HTTPException(status_code=403, detail=detail)
     log_admin_access(user, request)
     return user
 
@@ -98,4 +123,7 @@ def get_optional_user(
         return None
     if payload.get("type") != "user":
         return None
-    return db.query(User).filter(User.user_id == user_id, User.deleted_at.is_(None)).first()
+    user = db.query(User).filter(User.user_id == user_id, User.deleted_at.is_(None)).first()
+    if user is not None:
+        _mark_admin_mfa(user, payload)
+    return user

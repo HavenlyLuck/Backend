@@ -4,7 +4,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from sqlalchemy.orm import Session
 
-from app.core.dependencies import get_current_user, get_optional_user, log_admin_access
+from app.core.dependencies import get_current_user, get_optional_user, has_admin_access, log_admin_access
 from app.crud import review as review_crud
 from app.database import get_db
 from app.models.user import User
@@ -65,7 +65,7 @@ def delete_review(review_id: int, request: Request, db: Session = Depends(get_db
     if not review:
         raise HTTPException(status_code=404, detail="후기를 찾을 수 없습니다")
     if review.user_id != user.user_id:
-        if not user.is_admin:
+        if not has_admin_access(user):
             raise HTTPException(status_code=403, detail="내가 쓴 후기만 지울 수 있어요")
         log_admin_access(user, request)   # 관리자가 남의 후기를 지우면 접속기록을 남긴다
     image_url = review.image_url

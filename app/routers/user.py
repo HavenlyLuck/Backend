@@ -1,7 +1,7 @@
 import re
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.security import HTTPBearer
 from jose import JWTError
 from sqlalchemy.orm import Session
@@ -16,10 +16,12 @@ from app.schemas.user import (
     IdentityVerifyRequest, IdentityVerifyResponse, GuardianVerifyRequest, GuardianVerifyResponse, PasswordChangeRequest,
     WithdrawRequest, ReviewMarketingConsentRequest,
     FindIdRequest, FindIdResponse, PasswordResetCheckRequest, PasswordResetRequest,
-    SignupResponse,
+    SignupResponse, TotpSetupResponse, TotpEnableRequest,
 )
-from app.core.security import hash_password, verify_password, create_token, decode_token
-from app.core.dependencies import get_current_user
+from app.core.security import hash_password, verify_password, verify_password_or_dummy, create_token, decode_token
+from app.core.dependencies import get_current_user, client_ip, log_admin_access
+from app.core import throttle
+from app.core import totp
 from app.crud import referral as referral_crud
 from app.crud import withdrawal as withdrawal_crud
 from app.schemas.avatar import AvatarConfig
@@ -273,33 +275,67 @@ def signup(body: UserSignup, db: Session = Depends(get_db)):
     return SignupResponse.model_validate(user).model_copy(update={"signup_event_ticket": event_ticket})
 
 
-# 로그인
-@router.post("/login", response_model=TokenResponse)
-def login(body: UserLogin, db: Session = Depends(get_db)):
-    # DB에서 유저 찾기
-    user = db.query(User).filter(User.login_id == body.login_id, User.deleted_at.is_(None)).first()
+# ── 로그인 · 무차별 대입 방어 ─────────────────────────────────────────
+# IP마다 1분에 10번까지 (성공·실패 모두 센다). 아이디별 실패 잠금은 app/core/throttle.py
+LOGIN_IP_LIMIT = 10
+LOGIN_IP_WINDOW_SECONDS = 60
+# 관리자가 OTP로 받은 리프레시 토큰은 하루만 쓴다 (관리자 세션이 2주씩 이어지지 않게)
+ADMIN_REFRESH_TOKEN_EXPIRE_MINUTES = 60 * 24
 
-    # 유저 없거나 비밀번호 틀리면 에러
-    if not user or not verify_password(body.password, user.password):
-        raise HTTPException(status_code=401, detail="아이디 또는 비밀번호가 올바르지 않습니다")
 
-    # JWT 액세스 토큰 + 리프레시 토큰 발급
-    access_token = create_token({
-        "sub": str(user.user_id),
-        "type": "user",
-        "is_admin": user.is_admin
-    })
+# 토큰 발급 — mfa: 관리자가 2단계 인증(OTP)까지 거쳤는지. 이게 있어야 관리자 API를 쓸 수 있다 (get_current_admin)
+def _issue_tokens(user: User, mfa: bool) -> dict:
+    extra = {"mfa": True} if mfa else {}
+    access_token = create_token({"sub": str(user.user_id), "type": "user", "is_admin": user.is_admin, **extra})
     refresh_token = create_token(
-        {"sub": str(user.user_id), "type": "refresh"},
-        expires_delta=settings.REFRESH_TOKEN_EXPIRE_MINUTES,
+        {"sub": str(user.user_id), "type": "refresh", **extra},
+        expires_delta=ADMIN_REFRESH_TOKEN_EXPIRE_MINUTES if mfa else settings.REFRESH_TOKEN_EXPIRE_MINUTES,
     )
-
     return {
         "access_token": access_token,
         "refresh_token": refresh_token,
         "token_type": "bearer",
         "is_admin": user.is_admin,
     }
+
+
+# 로그인
+@router.post("/login", response_model=TokenResponse)
+def login(body: UserLogin, request: Request, db: Session = Depends(get_db)):
+    throttle.rate_limit("login-ip", client_ip(request), LOGIN_IP_LIMIT, LOGIN_IP_WINDOW_SECONDS, "로그인 시도가 너무 많아요.")
+    throttle.check_login_lock(body.login_id)
+
+    user = db.query(User).filter(User.login_id == body.login_id, User.deleted_at.is_(None)).first()
+
+    # 유저 없거나 비밀번호 틀리면 에러 — 없는 아이디도 bcrypt 비교를 해서 응답 시간을 맞추고, 실패 횟수도 똑같이 센다
+    if not verify_password_or_dummy(body.password, user.password if user else None):
+        throttle.record_login_failure(body.login_id)
+        raise HTTPException(status_code=401, detail="아이디 또는 비밀번호가 올바르지 않습니다")
+
+    # 관리자 2단계 인증 — OTP를 등록한 관리자는 앱의 6자리 코드까지 맞아야 한다
+    mfa = False
+    if user.is_admin and user.totp_enabled_at is not None:
+        if not body.otp_code:
+            raise HTTPException(status_code=401, detail={
+                "code": "otp_required",
+                "message": "OTP 앱에 표시된 6자리 인증 코드를 입력해주세요",
+            })
+        # 같은 코드를 동시에 두 번 쓰지 못하게 행을 잠그고 확인한다
+        me = db.query(User).filter(User.user_id == user.user_id).with_for_update().one()
+        step = totp.verify(totp.decrypt_secret(me.totp_secret), body.otp_code, me.totp_last_step)
+        if step is None:
+            db.rollback()
+            throttle.record_login_failure(body.login_id)
+            raise HTTPException(status_code=401, detail={
+                "code": "otp_invalid",
+                "message": "인증 코드가 올바르지 않습니다. 앱에 표시된 새 코드를 입력해주세요",
+            })
+        me.totp_last_step = step
+        db.commit()
+        mfa = True
+
+    throttle.clear_login_failures(body.login_id)
+    return _issue_tokens(user, mfa)
 
 # 액세스 토큰 재발급 (리프레시 토큰 이용)
 @router.post("/refresh", response_model=RefreshResponse)
@@ -317,13 +353,59 @@ def refresh(body: RefreshRequest, db: Session = Depends(get_db)):
     if not user:
         raise HTTPException(status_code=401, detail="사용자를 찾을 수 없습니다")
 
+    # 2단계 인증 표시는 리프레시 토큰에 있던 것만 이어받는다 (OTP를 DB에서 해제했으면 떼어 낸다)
+    mfa = payload.get("mfa") is True and user.is_admin and user.totp_enabled_at is not None
     access_token = create_token({
         "sub": str(user.user_id),
         "type": "user",
-        "is_admin": user.is_admin
+        "is_admin": user.is_admin,
+        **({"mfa": True} if mfa else {}),
     })
 
     return {"access_token": access_token, "token_type": "bearer", "is_admin": user.is_admin}
+
+
+# ── 관리자 2단계 인증(OTP) 등록 ─────────────────────────────────────────
+# 관리자 API는 OTP를 거친 토큰만 받으므로(get_current_admin), 관리자는 처음 한 번 여기서 등록한다.
+# 등록을 마친 뒤에는 API로 다시 등록·해제할 수 없다 (비밀번호를 훔친 사람이 자기 휴대폰으로 바꿔 등록하지 못하게).
+# 휴대폰을 잃어버리면 DB에서 해당 관리자의 totp_secret·totp_enabled_at·totp_last_step을 비우고 다시 등록한다
+
+def _require_admin_without_totp(user: User) -> None:
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="관리자 권한이 필요합니다")
+    if user.totp_enabled_at is not None:
+        raise HTTPException(status_code=400, detail="이미 2단계 인증을 등록했습니다")
+
+
+# 등록 1단계 — 새 비밀키를 만들어 OTP 앱에 넣을 키·링크를 준다 (다시 부르면 새 키로 바뀐다)
+@router.post("/me/2fa/setup", response_model=TotpSetupResponse)
+def setup_totp(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    _require_admin_without_totp(user)
+    secret = totp.new_secret()
+    user.totp_secret = totp.encrypt_secret(secret)
+    user.totp_last_step = None
+    db.commit()
+    return TotpSetupResponse(secret=secret, otpauth_uri=totp.provisioning_uri(secret, user.login_id))
+
+
+# 등록 2단계 — 앱에 뜬 코드가 맞으면 등록을 마치고, 2단계 인증을 거친 새 토큰을 준다
+@router.post("/me/2fa/enable", response_model=TokenResponse)
+def enable_totp(body: TotpEnableRequest, request: Request, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    _require_admin_without_totp(user)
+    if not user.totp_secret:
+        raise HTTPException(status_code=400, detail="등록을 처음부터 다시 시작해주세요")
+    throttle.rate_limit("totp-enable", str(user.user_id), 10, 300, "인증 코드 확인 시도가 너무 많아요.")
+
+    me = db.query(User).filter(User.user_id == user.user_id).with_for_update().one()
+    step = totp.verify(totp.decrypt_secret(me.totp_secret), body.code, None)
+    if step is None:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="인증 코드가 올바르지 않습니다. 앱에 표시된 새 코드를 입력해주세요")
+    me.totp_enabled_at = _utcnow()
+    me.totp_last_step = step
+    db.commit()
+    log_admin_access(me, request)   # 관리자 보안 설정 변경도 접속기록에 남긴다
+    return _issue_tokens(me, mfa=True)
 
 # ── 아이디·비밀번호 찾기 ─────────────────────────────────────────────
 # 본인인증한 사람의 계정을 찾는다. 프론트가 보낸 값은 믿지 않고 포트원에 직접 물어본 결과만 쓴다.
@@ -390,11 +472,14 @@ def reset_password(body: PasswordResetRequest, db: Session = Depends(get_db)):
     except IntegrityError:   # 같은 인증으로 동시에 두 번 요청한 경우
         db.rollback()
         raise HTTPException(status_code=400, detail="이미 사용한 본인인증입니다. 다시 인증해주세요")
+    # 본인인증으로 비밀번호를 바꿨으면 로그인 실패 잠금도 바로 풀어 준다
+    throttle.clear_login_failures(user.login_id)
 
 
-# 회원가입 중복확인
+# 회원가입 중복확인 — 가입 여부를 알려주는 API라 IP마다 1분에 30번까지만
 @router.post("/duplCheck")
-def dupl_check(body: DuplCheckRequest, db: Session = Depends(get_db)):
+def dupl_check(body: DuplCheckRequest, request: Request, db: Session = Depends(get_db)):
+    throttle.rate_limit("dupl-ip", client_ip(request), 30, 60, "중복 확인 요청이 너무 많아요.")
     if body.field == "login_id":
         exists = db.query(User).filter(User.login_id == body.value).first()
         label = "아이디"

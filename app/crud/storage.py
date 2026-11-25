@@ -11,6 +11,7 @@ from app.models.user import User
 from app.models.address import ShippingAddress
 from app.crud import point as point_crud
 from app.crud import address as address_crud
+from app.crud import alimtalk as alimtalk_crud
 
 
 class StorageCancelError(Exception):
@@ -177,6 +178,19 @@ def mark_shipped(db: Session, items: list[StorageItem], carrier: str, tracking_n
         item.carrier = carrier
         item.tracking_number = tracking_number
         item.shipped_at = now
+    # 받는 회원마다 택배 발송 알림톡 (보통 한 박스 = 한 회원)
+    names = {
+        row[0].storage_item_id: _item_dict(*row)["product_name"]
+        for row in _storage_query(db).filter(StorageItem.storage_item_id.in_([i.storage_item_id for i in items]))
+    }
+    by_user: dict[int, list[StorageItem]] = {}
+    for item in sorted(items, key=lambda i: i.storage_item_id):
+        by_user.setdefault(item.user_id, []).append(item)
+    for user_id, user_items in by_user.items():
+        alimtalk_crud.enqueue_shipped(
+            db, user_id, user_items[0].storage_item_id,
+            [names.get(i.storage_item_id, "주문 상품") for i in user_items], carrier, tracking_number,
+        )
     db.commit()
 
 

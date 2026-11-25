@@ -8,11 +8,15 @@ from app.database import SessionLocal
 from app.crud import raffle as raffle_crud
 from app.crud import payment as payment_crud
 from app.crud import withdrawal as withdrawal_crud
+from app.crud import alimtalk as alimtalk_crud
+from app.core.throttle import purge_expired_throttles
 from app.routers import user, admin, raffle, point, store, storage, address, avatar_item, notice, kuji, payment, inventory, finance, review, inquiry, referral, wishlist
 
 SETTLE_INTERVAL_SECONDS = 5
 # 결제 정리(결제 후 창을 닫은 주문 지급, 카드 취소 재시도)는 포트원 API를 부르므로 더 드물게
 PAYMENT_SETTLE_EVERY = 6   # SETTLE_INTERVAL_SECONDS × 6 = 30초마다
+# 알림톡 발송 — 응모·추첨 직후 너무 늦지 않게
+ALIMTALK_SEND_EVERY = 2    # SETTLE_INTERVAL_SECONDS × 2 = 10초마다
 # 탈퇴 회원의 보존 기간 지난 정보 파기 — 하루 단위 기한이라 1시간마다면 충분하다
 PRIVACY_PURGE_EVERY = 720  # SETTLE_INTERVAL_SECONDS × 720 = 1시간마다
 
@@ -41,6 +45,32 @@ def purge_withdrawn_once():
         db.close()
 
 
+# 쌓인 알림톡을 솔라피로 보낸다 (app/crud/alimtalk.py)
+def send_alimtalk_once():
+    db = SessionLocal()
+    try:
+        alimtalk_crud.send_pending(db)
+    finally:
+        db.close()
+
+
+def purge_alimtalk_once():
+    db = SessionLocal()
+    try:
+        alimtalk_crud.purge_old(db)
+    finally:
+        db.close()
+
+
+# 다 지난 로그인 시도 카운터 정리 (app/core/throttle.py)
+def purge_throttles_once():
+    db = SessionLocal()
+    try:
+        purge_expired_throttles(db)
+    finally:
+        db.close()
+
+
 # 응모 기간 만료 취소·환불과 매진 1분 뒤 자동 추첨, 결제 정리는 여기서만 처리한다.
 # API 요청마다 하면 원격 DB 왕복이 쌓여 모든 화면이 느려지므로 요청 경로에서는 하지 않는다.
 # (서버 프로세스가 여러 개여도 settle_raffles가 행 잠금으로 한 번만 처리한다)
@@ -56,11 +86,24 @@ async def settle_loop():
                 await asyncio.to_thread(settle_payments_once)
             except Exception:
                 logging.exception("payment settle failed")
+        if tick % ALIMTALK_SEND_EVERY == 0:
+            try:
+                await asyncio.to_thread(send_alimtalk_once)
+            except Exception:
+                logging.exception("alimtalk send failed")
         if tick % PRIVACY_PURGE_EVERY == 0:
             try:
                 await asyncio.to_thread(purge_withdrawn_once)
             except Exception:
                 logging.exception("privacy purge failed")
+            try:
+                await asyncio.to_thread(purge_throttles_once)
+            except Exception:
+                logging.exception("auth throttle purge failed")
+            try:
+                await asyncio.to_thread(purge_alimtalk_once)
+            except Exception:
+                logging.exception("alimtalk purge failed")
         tick += 1
         await asyncio.sleep(SETTLE_INTERVAL_SECONDS)
 

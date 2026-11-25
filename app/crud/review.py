@@ -8,6 +8,7 @@ from app.models.review import Review
 from app.models.storage import StorageItem
 from app.models.store import StoreProduct
 from app.models.user import User
+from app.core.dependencies import has_admin_access
 from app.crud import storage as storage_crud
 
 
@@ -120,7 +121,7 @@ def delete_review(db: Session, review: Review) -> None:
 
 def _inquiry_dict(q: Inquiry, nickname: str, viewer: Optional[User]) -> dict:
     mine = viewer is not None and q.user_id == viewer.user_id
-    visible = not q.is_private or mine or (viewer is not None and viewer.is_admin)
+    visible = not q.is_private or mine or has_admin_access(viewer)
     return {
         "inquiry_id": q.inquiry_id,
         "title": q.title if visible else "비공개 문의입니다",
