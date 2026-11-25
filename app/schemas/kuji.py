@@ -13,6 +13,8 @@ class KujiPrizeCreate(BaseModel):
     cost: int = 0
     image_index: Optional[int] = None
     inventory_item_id: Optional[int] = None   # 재고에서 고른 품목
+    catalog_item_id: Optional[int] = None     # 등록 상품 연결 (재고 확인·묶기 없음, 장부용)
+    point_amount: Optional[int] = None        # 쌀포인트 상 — 하위상만. 뽑히면 보관함 대신 쌀포인트 적립
 
 
 class KujiPrizeResponse(BaseModel):
@@ -23,6 +25,8 @@ class KujiPrizeResponse(BaseModel):
     image_url: Optional[str] = None
     quantity: int
     remaining_quantity: int
+    point_amount: Optional[int] = None     # 쌀포인트 상이면 적립 포인트 (실물 상은 null)
+    catalog_item_id: Optional[int] = None  # 등록 상품 (장부용)
 
     class Config:
         from_attributes = True
@@ -44,6 +48,7 @@ class KujiSetResponse(BaseModel):
     prizes: list[KujiPrizeResponse]
     last_one_name: Optional[str] = None
     last_one_image_url: Optional[str] = None
+    last_one_catalog_item_id: Optional[int] = None
     created_at: datetime
     sold_out_at: Optional[datetime] = None
 
@@ -88,6 +93,7 @@ class KujiDrawnPrize(BaseModel):
     tier: KujiTier
     name: str
     image_url: Optional[str] = None
+    point_amount: Optional[int] = None     # 쌀포인트 상이면 적립된 포인트 (실물 상은 null)
 
 
 class KujiLastOnePrize(BaseModel):

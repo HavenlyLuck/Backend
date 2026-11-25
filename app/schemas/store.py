@@ -20,6 +20,8 @@ class StoreProductResponse(BaseModel):
     stock: int
     image_url: Optional[str] = None
     funding_disabled: bool = False
+    sale_mode: Literal["limited", "regular"] = "limited"   # 일반(regular)은 개수 없이 계속 판다 — stock은 0
+    catalog_item_id: Optional[int] = None                  # 등록 상품 (장부용)
     created_at: datetime
 
     class Config:

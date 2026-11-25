@@ -7,12 +7,13 @@ from app.models.kuji import KujiSet, KujiPrize, KujiTicket
 from app.models.storage import StorageItem
 from app.crud import storage as storage_crud
 from app.crud import inventory as inventory_crud
+from app.crud import point as point_crud
 
 _rng = random.SystemRandom()
 
 
 # 쿠지 한 판 등록 — 세트, 상품, 섞은 제비를 한 트랜잭션으로 만든다
-# prizes: [{tier, name, quantity, cost, image_url}] (상위상 → 하위상 순서로 정렬된 상태)
+# prizes: [{tier, name, quantity, cost, image_url, inventory_item_id, catalog_item_id, point_amount}] (상위상 → 하위상 순서로 정렬된 상태)
 def create_kuji_set(
     db: Session,
     admin_id: int,
@@ -25,6 +26,7 @@ def create_kuji_set(
     last_one_image_url: Optional[str],
     last_one_cost: Optional[int],
     last_one_inventory_item_id: Optional[int] = None,
+    last_one_catalog_item_id: Optional[int] = None,
 ) -> KujiSet:
     # 재고에서 고른 상은 그 개수만큼, 라스트원상은 1개를 이 쿠지에 묶는다 (모자라면 InventoryError)
     needs = [(p["inventory_item_id"], p["quantity"]) for p in prizes if p.get("inventory_item_id") is not None]
@@ -32,6 +34,7 @@ def create_kuji_set(
         needs.append((last_one_inventory_item_id, 1))
     if needs:
         inventory_crud.check_available(db, needs)
+    inventory_crud.check_catalog_items(db, [p.get("catalog_item_id") for p in prizes] + [last_one_catalog_item_id])
     total = sum(p["quantity"] for p in prizes)
     kuji = KujiSet(
         admin_id=admin_id,
@@ -44,6 +47,7 @@ def create_kuji_set(
         last_one_name=last_one_name,
         last_one_image_url=last_one_image_url,
         last_one_cost=last_one_cost,
+        last_one_catalog_item_id=last_one_catalog_item_id,
     )
     db.add(kuji)
     db.flush()
@@ -59,6 +63,8 @@ def create_kuji_set(
             quantity=p["quantity"],
             remaining_quantity=p["quantity"],
             cost=p.get("cost", 0),
+            point_amount=p.get("point_amount"),
+            catalog_item_id=p.get("catalog_item_id"),
             sort_order=i,
         )
         db.add(row)
@@ -155,6 +161,15 @@ def fulfill_kuji_draw(db: Session, kuji_set_id: int, user_id: int, ticket_number
         won[t.kuji_prize_id] = won.get(t.kuji_prize_id, 0) + 1
 
     for prize_id, qty in won.items():
+        prize = prizes[prize_id]
+        if prize.point_amount:
+            # 쌀포인트 상 — 보관함에 넣지 않고 바로 적립한다 (배송·보관 기한·전환 대상 아님)
+            point_crud.apply_point_change(
+                db, user_id, prize.point_amount * qty, "kuji_prize",
+                reference_id=kuji.kuji_set_id,
+                description=(f"쿠지 당첨 — {kuji.title} {prize.grade}상 {prize.name}" + (f" ×{qty}" if qty > 1 else ""))[:255],
+            )
+            continue
         storage_crud.add_kuji_win(
             db, user_id=user_id, kuji_set_id=kuji.kuji_set_id, kuji_prize_id=prize_id,
             quantity=qty, amount_spent=kuji.ticket_price * qty, payment_id=payment_id,

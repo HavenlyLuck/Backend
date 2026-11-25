@@ -106,7 +106,7 @@ def prepare_payment(payload: PaymentPrepareRequest, db: Session = Depends(get_db
             raise HTTPException(status_code=404, detail="상품을 찾을 수 없습니다")
         if product.pay_type != "cash":
             raise HTTPException(status_code=400, detail="쌀포인트로 구매하는 상품입니다")
-        if product.stock < quantity:
+        if store_crud.is_limited(product) and product.stock < quantity:
             raise HTTPException(status_code=400, detail="재고가 부족합니다")
         total = product.price * quantity
         point_used = payload.point_use or 0

@@ -23,10 +23,13 @@ def create_store_product(
     image_url: Optional[str],
     inventory_item_id: Optional[int] = None,
     funding_disabled: bool = False,
+    sale_mode: str = "limited",
+    catalog_item_id: Optional[int] = None,
 ) -> StoreProduct:
-    # 재고에서 고른 품목이면 판매 수량만큼 이 상품에 묶는다 (모자라면 InventoryError)
-    if inventory_item_id is not None:
+    # 재고에서 고른 품목이면 판매 수량만큼 이 상품에 묶는다 (모자라면 InventoryError). 일반 상품은 개수가 없어 묶지 않는다
+    if inventory_item_id is not None and sale_mode == "limited":
         inventory_crud.check_available(db, [(inventory_item_id, stock)])
+    inventory_crud.check_catalog_items(db, [catalog_item_id])
     product = StoreProduct(
         admin_id=admin_id,
         product_name=product_name,
@@ -37,10 +40,12 @@ def create_store_product(
         stock=stock,
         image_url=image_url,
         funding_disabled=funding_disabled,
+        sale_mode=sale_mode,
+        catalog_item_id=catalog_item_id,
     )
     db.add(product)
     db.flush()
-    if inventory_item_id is not None:
+    if inventory_item_id is not None and sale_mode == "limited":
         inventory_crud.add_link(db, inventory_item_id, "store", product.store_product_id)
     db.commit()
     db.refresh(product)
@@ -61,7 +66,8 @@ def get_store_products(db: Session, pay_type: Optional[str] = None, include_sold
             )
             .exists()
         )
-        query = query.filter(or_(StoreProduct.stock > 0, funding))
+        # 일반 상품은 개수 없이 파니(stock 0) 품절로 빼지 않는다
+        query = query.filter(or_(StoreProduct.stock > 0, StoreProduct.sale_mode == "regular", funding))
     return query.order_by(StoreProduct.created_at.desc()).all()
 
 
@@ -105,6 +111,11 @@ def _week_start_utc(now: datetime) -> datetime:
     return monday - _KST
 
 
+# 한정 상품만 개수가 있다 — 일반(regular) 상품은 재고 확인·차감·복구를 하지 않는다
+def is_limited(product: StoreProduct) -> bool:
+    return product.sale_mode != "regular"
+
+
 def is_ticket_product(product: StoreProduct) -> bool:
     return product.pay_type == "ssal" and product.category == TICKET_CATEGORY
 
@@ -140,12 +151,15 @@ def fulfill_ticket_purchase(db: Session, store_product_id: int, user_id: int, qu
             f"쌀 응모권은 한 주에 {TICKET_WEEKLY_LIMIT}장까지 살 수 있어요"
             + (f" (이번 주 {left}장 더 살 수 있어요)" if left else ". 다음 주 월요일에 다시 살 수 있어요")
         )
-    if product.stock < quantity:
-        raise StorePurchaseError("재고가 부족합니다")
-
-    product.stock -= quantity
+    if is_limited(product):
+        if product.stock < quantity:
+            raise StorePurchaseError("재고가 부족합니다")
+        product.stock -= quantity
     now = _utcnow()
-    tickets = [FreeTicket(user_id=user_id, kind="store_purchase", created_at=now) for _ in range(quantity)]
+    tickets = [
+        FreeTicket(user_id=user_id, kind="store_purchase", store_product_id=product.store_product_id, created_at=now)
+        for _ in range(quantity)
+    ]
     db.add_all(tickets)
     db.flush()
     return product, tickets
@@ -162,10 +176,11 @@ def fulfill_store_purchase(
         raise StorePurchaseError("상품을 찾을 수 없습니다")
     if product.pay_type != pay_type:
         raise StorePurchaseError("결제 방식이 맞지 않는 상품입니다")
-    if product.stock < quantity:
-        raise StorePurchaseError("재고가 부족합니다")
-
-    product.stock -= quantity
+    # 일반 상품은 재고를 확인·차감하지 않는다 (모자라면 운영자가 떼 와서 보낸다)
+    if is_limited(product):
+        if product.stock < quantity:
+            raise StorePurchaseError("재고가 부족합니다")
+        product.stock -= quantity
     item = storage_crud.add_store_purchase(
         db,
         user_id=user_id,

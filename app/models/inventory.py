@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, Date, DateTime, Enum, ForeignKey, UniqueConstraint
+from sqlalchemy import Boolean, Column, Integer, String, Text, Date, DateTime, Enum, ForeignKey, UniqueConstraint
 from sqlalchemy.sql import func
 from app.database import Base
 
@@ -11,6 +11,8 @@ class InventoryItem(Base):
     image_url  = Column(String(500), nullable=True)
     memo       = Column(String(255), nullable=True)
     description = Column(Text, nullable=True)   # 상품 설명 · 상품정보제공고시 — 상품 등록 때 "재고에서 고르기"로 그대로 복사된다
+    # 관리자 "상품 등록"에서 지운 시각 — 이미 게시한 상품·입고 기록이 참조할 수 있어 행은 남기고 목록에서만 숨긴다
+    deleted_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
 
 
@@ -24,6 +26,7 @@ class InventoryReceipt(Base):
     received_at = Column(Date, nullable=False)       # 매입일
     supplier    = Column(String(100), nullable=True)
     memo        = Column(String(255), nullable=True)
+    tax_free    = Column(Boolean, nullable=False, default=False, server_default="0")   # 면세로 떼 온 입고 (장부가 과세분만 부가세를 나눈다)
     created_at  = Column(DateTime, server_default=func.now())
 
 

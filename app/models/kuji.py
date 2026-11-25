@@ -21,6 +21,7 @@ class KujiSet(Base):
     last_one_image_url = Column(String(500), nullable=True)
     last_one_cost      = Column(Integer, nullable=True)
     last_one_user_id   = Column(Integer, ForeignKey("users.user_id"), nullable=True)
+    last_one_catalog_item_id = Column(Integer, ForeignKey("inventory_items.item_id"), nullable=True)   # 라스트원상 등록 상품 (장부용)
     sold_out_at        = Column(DateTime, nullable=True)   # 마지막 제비가 뽑힌 시각 — 이 시각 + 하루 뒤 목록에서 내려간다
     board_version      = Column(Integer, nullable=False, default=1, server_default="1")  # 제비가 뽑힐 때마다 +1 — 제비판 조회에서 바뀐 게 없으면 빈 응답
     created_at         = Column(DateTime, server_default=func.now())
@@ -41,6 +42,9 @@ class KujiPrize(Base):
     quantity           = Column(Integer, nullable=False)
     remaining_quantity = Column(Integer, nullable=False)
     cost               = Column(Integer, nullable=False, default=0, server_default="0")  # 개당 원가(원) — 관리자 전용
+    # 쌀포인트 상 (하위상만) — 뽑히면 보관함 대신 이만큼 쌀포인트를 바로 적립한다. 실물 상은 비어 있음
+    point_amount       = Column(Integer, nullable=True)
+    catalog_item_id    = Column(Integer, ForeignKey("inventory_items.item_id"), nullable=True)   # 등록 상품 (장부용, 실물 상만)
     sort_order         = Column(Integer, nullable=False)
 
 

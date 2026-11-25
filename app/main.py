@@ -9,8 +9,9 @@ from app.crud import raffle as raffle_crud
 from app.crud import payment as payment_crud
 from app.crud import withdrawal as withdrawal_crud
 from app.crud import alimtalk as alimtalk_crud
+from app.crud import storage as storage_crud
 from app.core.throttle import purge_expired_throttles
-from app.routers import user, admin, raffle, point, store, storage, address, avatar_item, notice, kuji, payment, inventory, finance, review, inquiry, referral, wishlist
+from app.routers import user, admin, raffle, point, store, storage, address, avatar_item, notice, kuji, payment, inventory, finance, review, inquiry, referral, wishlist, idea_contest
 
 SETTLE_INTERVAL_SECONDS = 5
 # 결제 정리(결제 후 창을 닫은 주문 지급, 카드 취소 재시도)는 포트원 API를 부르므로 더 드물게
@@ -62,6 +63,15 @@ def purge_alimtalk_once():
         db.close()
 
 
+# 보관 기한(30일)이 지난 응모 당첨·쿠지 상품을 쌀포인트로 바꾼다 (app/crud/storage.py)
+def convert_storage_once():
+    db = SessionLocal()
+    try:
+        storage_crud.convert_expired_items(db)
+    finally:
+        db.close()
+
+
 # 다 지난 로그인 시도 카운터 정리 (app/core/throttle.py)
 def purge_throttles_once():
     db = SessionLocal()
@@ -104,6 +114,10 @@ async def settle_loop():
                 await asyncio.to_thread(purge_alimtalk_once)
             except Exception:
                 logging.exception("alimtalk purge failed")
+            try:
+                await asyncio.to_thread(convert_storage_once)
+            except Exception:
+                logging.exception("storage convert failed")
         tick += 1
         await asyncio.sleep(SETTLE_INTERVAL_SECONDS)
 
@@ -151,6 +165,7 @@ app.include_router(review.router, prefix="/reviews", tags=["reviews"])
 app.include_router(inquiry.router, prefix="/inquiries", tags=["inquiries"])
 app.include_router(referral.router, prefix="/referrals", tags=["referrals"])
 app.include_router(wishlist.router, prefix="/wishlist", tags=["wishlist"])
+app.include_router(idea_contest.router, prefix="/idea-contest", tags=["idea-contest"])
 
 @app.get("/server_ok")
 def health_check():

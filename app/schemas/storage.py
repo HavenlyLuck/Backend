@@ -15,7 +15,8 @@ class StorageItemResponse(BaseModel):
     price_krw: Optional[int] = None                       # 당첨 상품 정가
     pay_type: Optional[Literal["cash", "ssal"]] = None  # cash: 카드 결제(원), ssal: 쌀포인트
     amount_spent: Optional[int] = None
-    status: Literal["ready", "requested", "shipped"]
+    status: Literal["ready", "requested", "shipped", "converted"]
+    convert_tickets: Optional[int] = None   # 응모 당첨·쿠지 상품 — 보관 기한(30일)이 지나면 바뀔 쌀 응모권 장수 (상점 구매는 null)
     address_id: Optional[int] = None
     shipping_payment_id: Optional[str] = None   # 배송 신청 때 낸 배송비 결제 — 같은 값인 상품끼리 같이 신청한 것 (배송 취소도 같이 된다)
     requested_at: Optional[datetime] = None

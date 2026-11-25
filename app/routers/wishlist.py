@@ -50,6 +50,7 @@ def get_my_wishlist(db: Session = Depends(get_db), user: User = Depends(get_curr
             pay_type=p.pay_type,
             price=p.price,
             stock=p.stock,
+            sale_mode=p.sale_mode,
             wished_at=w.created_at,
         )
         for w, p in wishlist_crud.get_wishlist(db, user.user_id)
