@@ -3,7 +3,9 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
+from app.models.free_ticket import FreeTicket
 from app.models.inquiry import Inquiry
+from app.models.kuji import KujiPrize
 from app.models.review import Review
 from app.models.storage import StorageItem
 from app.models.store import StoreProduct
@@ -57,7 +59,27 @@ def get_reviews(db: Session, viewer_id: Optional[int] = None) -> list[dict]:
     return [_review_dict(r, login_id, viewer_id, pay_type) for r, login_id, pay_type in rows]
 
 
-# 내 보관함 상품 중 아직 후기를 안 쓴 것
+# 후기를 쓸 수 있는 상품 — 응모 당첨 상품 · 쿠지 상위상(라스트원상 포함) · 일반 상점(카드 결제) 상품만.
+# 쌀포인트 상점 상품과 쿠지 하위상은 뺀다
+def _reviewable_storage_items(db: Session, user_id: int) -> list[dict]:
+    items = storage_crud.get_user_storage_items(db, user_id)
+    prize_ids = {i["kuji_prize_id"] for i in items if i["source"] == "kuji" and i["kuji_prize_id"]}
+    upper = {
+        pid for (pid,) in db.query(KujiPrize.kuji_prize_id)
+        .filter(KujiPrize.kuji_prize_id.in_(prize_ids), KujiPrize.tier == "upper")
+    } if prize_ids else set()
+
+    def ok(i: dict) -> bool:
+        if i["source"] == "raffle":
+            return True
+        if i["source"] == "kuji":
+            return i["kuji_prize_id"] is None or i["kuji_prize_id"] in upper   # kuji_prize_id 없음 = 라스트원상
+        return i["pay_type"] == "cash"
+
+    return [i for i in items if ok(i)]
+
+
+# 내 보관함 상품 중 후기를 쓸 수 있고 아직 안 쓴 것
 def get_reviewable_items(db: Session, user_id: int) -> list[dict]:
     reviewed = {
         sid for (sid,) in db.query(Review.storage_item_id)
@@ -72,7 +94,7 @@ def get_reviewable_items(db: Session, user_id: int) -> list[dict]:
             "image_url": item["image_url"],
             "created_at": item["created_at"],
         }
-        for item in storage_crud.get_user_storage_items(db, user_id)
+        for item in _reviewable_storage_items(db, user_id)
         if item["storage_item_id"] not in reviewed
     ]
 
@@ -85,11 +107,11 @@ def create_review(
     db: Session, user: User, storage_item_id: int, rating: int, title: str, content: str, image_url: Optional[str],
 ) -> dict:
     item = next(
-        (i for i in storage_crud.get_user_storage_items(db, user.user_id) if i["storage_item_id"] == storage_item_id),
+        (i for i in _reviewable_storage_items(db, user.user_id) if i["storage_item_id"] == storage_item_id),
         None,
     )
     if not item:
-        raise ReviewError("받은 상품에만 후기를 쓸 수 있어요")
+        raise ReviewError("후기를 쓸 수 없는 상품이에요 (응모 당첨 · 쿠지 상위상 · 일반 상점 상품만 쓸 수 있어요)")
     if db.query(Review).filter(Review.storage_item_id == storage_item_id).first():
         raise ReviewError("이미 후기를 쓴 상품이에요")
     review = Review(
@@ -103,9 +125,23 @@ def create_review(
         image_url=image_url,
     )
     db.add(review)
+
+    # 사진 후기 보상 — 쌀 응모권 1장. 같은 보관함 상품으로는 평생 한 번만 (지급 기록은 후기가 아니라 보관함 상품에 남긴다).
+    # 동시에 두 번 올려도 한 번만 주도록 보관함 행을 잠그고 확인한다
+    rewarded = False
+    if image_url:
+        storage_item = (
+            db.query(StorageItem).filter(StorageItem.storage_item_id == storage_item_id).with_for_update().one()
+        )
+        if storage_item.review_rewarded_at is None:
+            now = _now()
+            storage_item.review_rewarded_at = now
+            db.add(FreeTicket(user_id=user.user_id, kind="review_photo", created_at=now))
+            rewarded = True
+
     db.commit()
     db.refresh(review)
-    return _review_dict(review, user.login_id, user.user_id, item["pay_type"])
+    return {**_review_dict(review, user.login_id, user.user_id, item["pay_type"]), "ssal_ticket_rewarded": rewarded}
 
 
 def get_review(db: Session, review_id: int) -> Optional[Review]:

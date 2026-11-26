@@ -17,6 +17,8 @@ class ReviewResponse(BaseModel):
     author: str                                        # 작성자 가입 아이디, 가운데는 * 로 가림 (ab****g)
     is_mine: bool = False
     created_at: datetime
+    # 이 후기로 쌀 응모권 1장을 줬으면 true — 후기를 올린 응답(POST /reviews)에서만 true가 될 수 있다
+    ssal_ticket_rewarded: bool = False
 
 
 # 후기를 쓸 수 있는 내 보관함 상품 (아직 후기를 안 쓴 것)

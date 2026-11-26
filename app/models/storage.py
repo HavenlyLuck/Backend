@@ -18,6 +18,8 @@ class StorageItem(Base):
     status            = Column(Enum("ready", "requested", "shipped", "converted", name="storage_status"), nullable=False, default="ready", server_default="ready")
     converted_at      = Column(DateTime, nullable=True)    # 쌀 응모권으로 바뀐 시각
     convert_tickets   = Column(Integer, nullable=True)     # 그때 준 쌀 응모권 장수
+    # 사진 후기 보상(쌀 응모권 1장)을 준 시각 — 후기와 따로 남겨서, 후기를 지우고 다시 써도 또 주지 않는다
+    review_rewarded_at = Column(DateTime, nullable=True)
     address_id        = Column(Integer, ForeignKey("shipping_addresses.address_id"), nullable=True)   # 배송 신청 시 선택한 배송지
     shipping_payment_id = Column(String(64), ForeignKey("payments.payment_id"), nullable=True, index=True)  # 배송 신청 때 낸 배송비 결제 (같이 신청한 상품끼리 같다)
     requested_at      = Column(DateTime, nullable=True)

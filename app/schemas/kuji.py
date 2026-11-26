@@ -109,3 +109,15 @@ class KujiDrawResponse(BaseModel):
     amount_paid: int = 0   # 결제 금액(원)
     conflict_ticket_numbers: list[int] = []
     board: KujiBoardResponse
+
+
+# 쿠지 당첨 소식 (홈 띠) — 상위상·라스트원상만. 닉네임은 원본 그대로 주고 화면에서 가린다 (탈퇴했으면 null)
+class KujiRecentWin(BaseModel):
+    kuji_set_id: int
+    kuji_title: str
+    tier: KujiTier                  # 라스트원상은 upper
+    grade: str                      # 'A' 같은 등급, 라스트원상은 'LAST ONE'
+    prize_name: str
+    is_last_one: bool
+    winner_nickname: Optional[str] = None
+    drawn_at: datetime              # 뽑은 시각 (UTC)

@@ -20,13 +20,13 @@ def list_reviews(db: Session = Depends(get_db), viewer: Optional[User] = Depends
     return review_crud.get_reviews(db, viewer.user_id if viewer else None)
 
 
-# 후기를 쓸 수 있는 내 상품 — 보관함에 받은 상품 중 아직 후기를 안 쓴 것
+# 후기를 쓸 수 있는 내 상품 — 보관함에 받은 응모 당첨 · 쿠지 상위상(라스트원상 포함) · 일반 상점 상품 중 아직 후기를 안 쓴 것
 @router.get("/reviewable", response_model=list[ReviewableItem])
 def list_reviewable_items(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return review_crud.get_reviewable_items(db, user.user_id)
 
 
-# 후기 작성
+# 후기 작성 — 사진이 있으면 쌀 응모권 1장 (같은 상품으로는 평생 한 번, 후기를 지워도 회수하지 않음)
 @router.post("", response_model=ReviewResponse)
 def create_review(
     storage_item_id: int = Form(...),
@@ -49,7 +49,7 @@ def create_review(
 
     # 사진은 상품 확인이 끝난 뒤에 올린다 (조건이 안 맞으면 업로드하지 않게)
     if storage_item_id not in {i["storage_item_id"] for i in review_crud.get_reviewable_items(db, user.user_id)}:
-        raise HTTPException(status_code=400, detail="후기를 쓸 수 없는 상품이에요 (받은 상품에 한 번만 쓸 수 있어요)")
+        raise HTTPException(status_code=400, detail="후기를 쓸 수 없는 상품이에요 (응모 당첨 · 쿠지 상위상 · 일반 상점 상품에 한 번만 쓸 수 있어요)")
     image_url = upload_image(image, folder="reviews") if image else None
     try:
         return review_crud.create_review(db, user, storage_item_id, rating, title, content, image_url)
