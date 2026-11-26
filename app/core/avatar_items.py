@@ -5,8 +5,6 @@ AVATAR_ITEMS: dict[str, dict] = {
     "outfit-jacket": {"name": "가죽 재킷 세트", "price": 3000, "slot": "top"},   # 하의·신발까지 한 그림이라 상의 칸
     "hat-cap": {"name": "갈색 캡모자", "price": 2000, "slot": "hat"},
     "held-flowers": {"name": "빨간 꽃다발", "price": 1500, "slot": "held"},
-    "face-smile": {"name": "해맑은 미소", "price": 1000, "slot": "face"},
-    "tattoo-star": {"name": "별빛 볼 문신", "price": 800, "slot": "tattoo"},
     "top-cat-hoodie": {"name": "냥냥 후드티", "price": 2500, "slot": "top"},
     "bottom-check-skirt": {"name": "체크 스커트", "price": 2000, "slot": "bottom"},
     "hat-bunny": {"name": "토끼 귀 머리띠", "price": 2000, "slot": "hat"},
@@ -27,18 +25,6 @@ AVATAR_ITEMS: dict[str, dict] = {
     "hair-mint-buns": {"name": "민트 똥머리", "price": 2000, "slot": "hairItem"},
     "hair-twoblock": {"name": "깔끔한 투블럭", "price": 2500, "slot": "hairItem"},
     "hair-spiky": {"name": "삐죽삐죽 머리", "price": 2000, "slot": "hairItem"},
-    "hair-dandy-part": {"name": "댄디 가르마", "price": 2500, "slot": "hairItem"},
-    "hair-buzz": {"name": "짧은 스포츠머리", "price": 1500, "slot": "hairItem"},
-    "tattoo-sparkle": {"name": "푸른 별빛 타투", "price": 1200, "slot": "tattoo"},
-    "tattoo-dark-flame": {"name": "다크 플레임", "price": 1200, "slot": "tattoo"},
-    "tattoo-heart": {"name": "하트 드리프트", "price": 1200, "slot": "tattoo"},
-    "tattoo-crescent": {"name": "초승달 문신", "price": 1200, "slot": "tattoo"},
-    "tattoo-demon-wing": {"name": "데몬 윙", "price": 1200, "slot": "tattoo"},
-    "tattoo-black-star": {"name": "별 문신", "price": 800, "slot": "tattoo"},
-    "tattoo-teardrop": {"name": "눈물방울", "price": 800, "slot": "tattoo"},
-    "tattoo-x": {"name": "X자 문신", "price": 800, "slot": "tattoo"},
-    "tattoo-paw": {"name": "발바닥 자국", "price": 800, "slot": "tattoo"},
-    "tattoo-bolt": {"name": "번개 문신", "price": 800, "slot": "tattoo"},
     "top-neko-hoodie": {"name": "네코 후드티", "price": 2500, "slot": "top"},
     "top-aurora-jumper": {"name": "별하늘 오로라 점퍼", "price": 3000, "slot": "top"},
     "top-dracula-cape": {"name": "드라큘라 케이프", "price": 3500, "slot": "top"},
@@ -74,6 +60,7 @@ AVATAR_ITEMS: dict[str, dict] = {
 }
 
 # 착용 칸 — 칸마다 아이템 하나씩 (머리 모양은 무료라 상점 아이템이 아니다). 프론트 shopItems.ts의 WEAR_SLOTS와 같다
-# 머리(상점 머리 — 입으면 무료 머리 모양 대신 그린다)·표정·문신·상의·하의·모자·신발·손·등·오라·배경
-AVATAR_ITEM_SLOTS = ("hairItem", "face", "tattoo", "top", "bottom", "hat", "shoes", "held", "back", "aura", "background")
+# 머리(상점 머리 — 입으면 무료 머리 모양 대신 그린다)·상의·하의·모자·신발·손·등·오라·배경
+# 표정·문신 칸과 그 아이템, 댄디 가르마·짧은 스포츠머리는 없앴다 (2026-11). 이미 산 회원의 보유 기록(user_avatar_items)은 남지만 착용·구매는 안 된다
+AVATAR_ITEM_SLOTS = ("hairItem", "top", "bottom", "hat", "shoes", "held", "back", "aura", "background")
 

@@ -10,8 +10,6 @@ class AvatarConfig(BaseModel):
     hair: Literal["buns", "short"]   # 프론트 shopItems.ts의 HAIRS (무료)
     # 칸마다 착용한 아이템 — 그 칸의 아이템이고, 보유한 것만 착용할 수 있다 (routers/user.py에서 확인)
     hairItem: Optional[str] = None    # 상점 머리 (입으면 무료 머리 모양 대신 그린다)
-    face: Optional[str] = None        # 표정
-    tattoo: Optional[str] = None      # 문신
     top: Optional[str] = None         # 상의
     bottom: Optional[str] = None      # 하의
     hat: Optional[str] = None         # 모자
@@ -26,7 +24,7 @@ class AvatarItemResponse(BaseModel):
     item_id: str
     name: str
     price: int   # 쌀포인트
-    slot: Literal["hairItem", "face", "tattoo", "top", "bottom", "hat", "shoes", "held", "back", "aura", "background"]
+    slot: Literal["hairItem", "top", "bottom", "hat", "shoes", "held", "back", "aura", "background"]
 
 
 class AvatarItemPurchaseResponse(BaseModel):
