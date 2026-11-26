@@ -14,7 +14,7 @@ class AvatarConfig(BaseModel):
     bottom: Optional[str] = None      # 하의
     hat: Optional[str] = None         # 모자
     shoes: Optional[str] = None       # 신발
-    held: Optional[str] = None        # 손
+    held: Optional[str] = None        # 소품 (손에 드는 것)
     back: Optional[str] = None        # 등
     aura: Optional[str] = None        # 오라
     background: Optional[str] = None  # 배경
