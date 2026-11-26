@@ -1,4 +1,7 @@
 # app/routers/address.py
+import re
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
@@ -10,6 +13,13 @@ from app.crud import address as address_crud
 from app.services import juso
 
 router = APIRouter()
+
+
+# 연락처 — 숫자만 남겨 0으로 시작하는 9~12자리(휴대폰 010-…, 지역번호 02-…, 안심번호 050x-…)만 받는다.
+# 택배 송장에 그대로 들어가므로 숫자만 저장한다. 형식이 틀리면 None
+def normalize_contact_phone(value: str) -> Optional[str]:
+    digits = re.sub(r"\D", "", value)
+    return digits if re.fullmatch(r"0\d{8,11}", digits) else None
 
 # 내 배송지 목록 (기본 배송지가 맨 앞)
 @router.get("/me", response_model=list[AddressResponse])
@@ -45,6 +55,9 @@ def create_address(
     address1 = payload.address1.strip()
     if not recipient or not phone or not address1:
         raise HTTPException(status_code=400, detail="받는 사람, 연락처, 주소는 필수입니다")
+    phone = normalize_contact_phone(phone)
+    if phone is None:
+        raise HTTPException(status_code=400, detail="연락처를 정확히 입력해 주세요 (예: 010-1234-5678)")
 
     return address_crud.create_address(
         db,
