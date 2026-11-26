@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from app.database import SessionLocal
 from app.crud import raffle as raffle_crud
 from app.crud import payment as payment_crud
@@ -130,6 +131,36 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="HavenlyLuck API", lifespan=lifespan)
+
+
+# 처리 중 예상 못 한 오류 → JSON 500으로 바꾼다. CORS보다 안쪽에 둬야(아래 add_middleware보다 먼저 등록) 500 응답에도
+# CORS 헤더가 붙는다 — 없으면 브라우저가 응답을 못 읽고 "Failed to fetch"(연결 실패)로만 보인다
+class CatchServerErrors:
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            return await self.app(scope, receive, send)
+        started = False
+
+        async def send_wrapper(message):
+            nonlocal started
+            if message["type"] == "http.response.start":
+                started = True
+            await send(message)
+
+        try:
+            await self.app(scope, receive, send_wrapper)
+        except Exception:
+            logging.exception("unhandled error: %s %s", scope.get("method"), scope.get("path"))
+            if started:
+                raise
+            response = JSONResponse(status_code=500, content={"detail": "일시적인 오류가 발생했어요. 잠시 후 다시 시도해 주세요."})
+            await response(scope, receive, send)
+
+
+app.add_middleware(CatchServerErrors)
 
 # CORS
 app.add_middleware(
