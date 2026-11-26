@@ -5,6 +5,7 @@ from typing import Optional
 
 from app.models.kuji import KujiSet, KujiPrize, KujiTicket
 from app.models.storage import StorageItem
+from app.models.user import User
 from app.crud import storage as storage_crud
 from app.crud import inventory as inventory_crud
 from app.crud import point as point_crud
@@ -212,3 +213,39 @@ def get_paid_draw(db: Session, kuji_set_id: int, user_id: int, ticket_numbers: l
         StorageItem.payment_id == payment_id, StorageItem.kuji_prize_id.is_(None),
     ).first() is not None
     return kuji, [(t, prizes[t.kuji_prize_id]) for t in tickets], got_last_one
+
+
+# 쿠지 당첨 소식 — 상위상 제비와 라스트원상을 뽑은 시각 최신순으로 limit개 (탈퇴한 당첨자는 닉네임 없음)
+def get_recent_wins(db: Session, limit: int) -> list[dict]:
+    uppers = (
+        db.query(KujiTicket.drawn_at, KujiSet.kuji_set_id, KujiSet.title, KujiPrize.grade, KujiPrize.name,
+                 User.nickname, User.deleted_at)
+        .join(KujiPrize, KujiTicket.kuji_prize_id == KujiPrize.kuji_prize_id)
+        .join(KujiSet, KujiTicket.kuji_set_id == KujiSet.kuji_set_id)
+        .join(User, KujiTicket.drawn_by_user_id == User.user_id)
+        .filter(KujiPrize.tier == "upper", KujiTicket.drawn_at.isnot(None))
+        .order_by(KujiTicket.drawn_at.desc(), KujiTicket.kuji_ticket_id.desc())
+        .limit(limit)
+        .all()
+    )
+    last_ones = (
+        db.query(KujiSet.sold_out_at, KujiSet.kuji_set_id, KujiSet.title, KujiSet.last_one_name,
+                 User.nickname, User.deleted_at)
+        .join(User, KujiSet.last_one_user_id == User.user_id)
+        .filter(KujiSet.last_one_name.isnot(None), KujiSet.sold_out_at.isnot(None))
+        .order_by(KujiSet.sold_out_at.desc(), KujiSet.kuji_set_id.desc())
+        .limit(limit)
+        .all()
+    )
+    wins = [
+        {"kuji_set_id": sid, "kuji_title": title, "tier": "upper", "grade": grade, "prize_name": name,
+         "is_last_one": False, "winner_nickname": None if deleted else nick, "drawn_at": at}
+        for at, sid, title, grade, name, nick, deleted in uppers
+    ] + [
+        {"kuji_set_id": sid, "kuji_title": title, "tier": "upper", "grade": "LAST ONE", "prize_name": name,
+         "is_last_one": True, "winner_nickname": None if deleted else nick, "drawn_at": at}
+        for at, sid, title, name, nick, deleted in last_ones
+    ]
+    # 같은 시각이면 (마지막 제비와 라스트원상) 라스트원상을 먼저
+    wins.sort(key=lambda w: (w["drawn_at"], w["is_last_one"]), reverse=True)
+    return wins[:limit]

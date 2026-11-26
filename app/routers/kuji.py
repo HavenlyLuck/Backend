@@ -11,7 +11,7 @@ from app.core.dependencies import get_current_admin
 from app.models.user import User
 from app.schemas.kuji import (
     KujiPrizeCreate, KujiSetResponse, KujiSetAdminResponse, KujiBoardResponse, KujiDrawnTicket,
-    KujiDrawResponse, KujiDrawnPrize, KujiLastOnePrize,
+    KujiDrawResponse, KujiDrawnPrize, KujiLastOnePrize, KujiRecentWin,
 )
 from app.services.cloudinary import upload_image
 from app.crud import kuji as kuji_crud
@@ -166,6 +166,13 @@ def list_kuji_sets(
     db: Session = Depends(get_db),
 ):
     return kuji_crud.get_kuji_sets(db, status=status)
+
+
+# 쿠지 당첨 소식 (누구나) — 상위상·라스트원상만, 최신순.
+# ⚠️ /{kuji_set_id}보다 위에 둬야 한다 (아래에 있으면 recent-wins가 쿠지 번호로 해석돼 422)
+@router.get("/recent-wins", response_model=list[KujiRecentWin])
+def list_recent_kuji_wins(limit: int = Query(10, ge=1, le=50), db: Session = Depends(get_db)):
+    return kuji_crud.get_recent_wins(db, limit)
 
 
 # 쿠지 상세
