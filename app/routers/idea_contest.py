@@ -136,7 +136,7 @@ def admin_week_entries(week_start: date, db: Session = Depends(get_db), admin: U
     return crud.list_week(db, week_start, include_hidden=True)
 
 
-# 시상 — 끝난 주에서 1등부터 차례로 고른 응모작에 등수를 매기고 쌀 응모권 지급 (1등 10장, 2·3등 5장)
+# 시상 — 끝난 주에서 1등부터 차례로 고른 응모작에 등수를 매기고 쌀 응모권 지급 (1등 10장, 2등 7장, 3등 5장)
 @router.post("/admin/weeks/{week_start}/award", response_model=list[IdeaAdminEntryResponse])
 def admin_award(
     week_start: date,

@@ -1,7 +1,7 @@
 """
 천운 아바타 아이디어 공모전 — 고객이 원하는 아바타 아이템 아이디어를 그림판에 그려 올리고,
 한 주(한국 시간 월요일 0시 ~ 다음 월요일 0시)가 끝나면 관리자가 1·2·3등을 뽑아 쌀 응모권을 준다.
-  1등 10장, 2·3등 5장 — 보관함의 쌀 응모권(free_tickets, kind=idea_contest)으로 바로 들어간다.
+  1등 10장, 2등 7장, 3등 5장 — 보관함의 쌀 응모권(free_tickets, kind=idea_contest)으로 바로 들어간다.
 """
 from datetime import date, datetime, timedelta, timezone
 from typing import Optional
@@ -14,7 +14,7 @@ from app.models.free_ticket import FreeTicket
 from app.models.idea_contest import IdeaContestEntry, IdeaContestLike, IdeaContestWeek
 from app.models.user import User
 
-PRIZES: dict[int, int] = {1: 10, 2: 5, 3: 5}   # 등수 → 쌀 응모권 장수
+PRIZES: dict[int, int] = {1: 10, 2: 7, 3: 5}   # 등수 → 쌀 응모권 장수
 # 아바타 분류 — 프론트 아바타 꾸미기 분류(lib/avatar/shopItems.ts의 WEAR_SLOTS)와 같은 값
 CATEGORIES = ("hairItem", "top", "bottom", "hat", "shoes", "held", "back", "aura", "background")
 MAX_ENTRIES_PER_WEEK = 1                       # 한 사람이 한 주에 올릴 수 있는 응모작 수
