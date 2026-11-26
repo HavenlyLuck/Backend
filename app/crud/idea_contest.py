@@ -16,7 +16,7 @@ from app.models.user import User
 
 PRIZES: dict[int, int] = {1: 10, 2: 5, 3: 5}   # 등수 → 쌀 응모권 장수
 # 아바타 분류 — 프론트 아바타 꾸미기 분류(lib/avatar/shopItems.ts의 WEAR_SLOTS)와 같은 값
-CATEGORIES = ("hairItem", "eyes", "mouth", "tattoo", "top", "bottom", "hat", "shoes", "held", "back", "aura", "background")
+CATEGORIES = ("hairItem", "top", "bottom", "hat", "shoes", "held", "back", "aura", "background")
 MAX_ENTRIES_PER_WEEK = 1                       # 한 사람이 한 주에 올릴 수 있는 응모작 수
 _KST = timedelta(hours=9)
 
