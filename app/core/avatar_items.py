@@ -21,6 +21,7 @@ AVATAR_ITEMS: dict[str, dict] = {
     "bg-stage": {"name": "스포트라이트 무대", "price": 3000, "slot": "background"},
     "bg-park": {"name": "햇살 공원", "price": 2000, "slot": "background"},
     "bg-lucky": {"name": "천운 행운방", "price": 3000, "slot": "background"},
+    "bg-sunset-river": {"name": "노을 강가", "price": 3000, "slot": "background"},
     "hair-pink-buns": {"name": "벚꽃 핑크 똥머리", "price": 2000, "slot": "hairItem"},
     "hair-blonde-short": {"name": "햇살 금발 단발", "price": 2000, "slot": "hairItem"},
     "hair-mint-buns": {"name": "민트 똥머리", "price": 2000, "slot": "hairItem"},
