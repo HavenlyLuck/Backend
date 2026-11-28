@@ -10,13 +10,15 @@ from app.models.store import StoreProduct
 from app.models.kuji import KujiSet, KujiPrize
 from app.models.storage import StorageItem
 from app.models.user import User
-from app.models.inventory import Expense
+from app.models.inventory import Expense, InventoryItem
 from app.crud import inventory as inventory_crud
 
 """
 재고·자금 손익의 판매 기록 — 따로 쌓지 않고 결제 · 보관함에서 모은다.
   매출 = 카드 결제 금액 (환불된 결제는 빠진다). 쌀포인트로 산 건 매출 0
-  원가 = 재고 품목에 연결된 상품이면 품목 평균 원가 × 나간 수량, 아니면 쿠지 등록 때 적은 원가(없으면 0)
+  원가 = 등록 상품(품목)에 연결된 상품이면 품목 매입 평균 단가 × 나간 수량, 아니면 쿠지 등록 때 적은 원가(없으면 0)
+    품목 찾기는 장부(crud/ledger.py)와 같다 — 상품의 catalog_item_id가 먼저, 없으면 예전 재고 연결(inventory_links)
+    평균 단가는 단가 0인 등록용 빈 기록을 뺀 매입 기록으로 낸다 (get_purchase_avg_costs). 쌀포인트 상은 0원
   날짜(한국 시간) — 쿠지 · 결제 상점은 결제한 날, 응모는 추첨한 날, 쌀포인트 상점은 구매한 날
 DB의 시각은 UTC라 한국 날짜로 바꿀 때 9시간을 더한다.
 """
@@ -34,12 +36,15 @@ def _kst_date(dt: datetime) -> str:
 
 def get_sales(db: Session, start: date, end: date) -> list[dict]:
     lo, hi = _utc_range(start, end)
-    avg = inventory_crud.get_avg_costs(db)
     links = inventory_crud.get_link_map(db)
+    avg = inventory_crud.get_purchase_avg_costs(db, [i for (i,) in db.query(InventoryItem.item_id)])
 
-    def linked_cost(product_type: str, product_id: int, fallback: int = 0) -> tuple[int, Optional[int]]:
-        item_id = links.get((product_type, product_id))
-        return (avg.get(item_id, 0), item_id) if item_id is not None else (fallback, None)
+    # catalog_item_id: 상품에 저장한 등록 상품. 없으면 예전 재고 연결. 매입 기록이 없는 품목이면 fallback(쿠지 등록 원가)
+    def linked_cost(catalog_item_id: Optional[int], product_type: str, product_id: int, fallback: int = 0) -> tuple[int, Optional[int]]:
+        item_id = catalog_item_id or links.get((product_type, product_id))
+        if item_id is None:
+            return fallback, None
+        return avg.get(item_id, fallback), item_id
 
     sales: list[dict] = []
 
@@ -64,7 +69,7 @@ def get_sales(db: Session, start: date, end: date) -> list[dict]:
     for payment, nickname in payments:
         if payment.order_type == "store_purchase":
             product = stores.get(payment.target_id)
-            unit, item_id = linked_cost("store", payment.target_id)
+            unit, item_id = linked_cost(product.catalog_item_id if product else None, "store", payment.target_id)
             sales.append({
                 "id": payment.payment_id, "date": _kst_date(payment.paid_at), "type": "상점", "pay": "cash",
                 "title": f"{product.product_name if product else '(삭제된 상품)'} ×{payment.quantity}",
@@ -77,9 +82,11 @@ def get_sales(db: Session, start: date, end: date) -> list[dict]:
             for item in items_by_payment[payment.payment_id]:
                 if item.kuji_prize_id is not None:
                     prize = prizes.get(item.kuji_prize_id)
-                    unit, _ = linked_cost("kuji_prize", item.kuji_prize_id, prize.cost if prize else 0)
+                    unit, _ = linked_cost(prize.catalog_item_id if prize else None, "kuji_prize", item.kuji_prize_id,
+                                          prize.cost if prize else 0)
                 else:  # 라스트원상
-                    unit, _ = linked_cost("kuji_last_one", payment.target_id, (kuji.last_one_cost or 0) if kuji else 0)
+                    unit, _ = linked_cost(kuji.last_one_catalog_item_id if kuji else None, "kuji_last_one", payment.target_id,
+                                          (kuji.last_one_cost or 0) if kuji else 0)
                 cost += unit * item.quantity
             sales.append({
                 "id": payment.payment_id, "date": _kst_date(payment.paid_at), "type": "쿠지", "pay": "cash",
@@ -103,7 +110,7 @@ def get_sales(db: Session, start: date, end: date) -> list[dict]:
         ):
             revenue[raffle_id] += amount
         for raffle, nickname in raffles:
-            unit, item_id = linked_cost("raffle", raffle.raffle_product_id)
+            unit, item_id = linked_cost(raffle.catalog_item_id, "raffle", raffle.raffle_product_id)
             sales.append({
                 "id": f"raffle-{raffle.raffle_product_id}", "date": _kst_date(raffle.drawn_at), "type": "응모", "pay": "cash",
                 "title": f"[응모] {raffle.product_name}", "buyer": nickname or "-",
@@ -120,7 +127,7 @@ def get_sales(db: Session, start: date, end: date) -> list[dict]:
         .all()
     )
     for item, product, nickname in ssal_rows:
-        unit, item_id = linked_cost("store", product.store_product_id)
+        unit, item_id = linked_cost(product.catalog_item_id, "store", product.store_product_id)
         sales.append({
             "id": f"storage-{item.storage_item_id}", "date": _kst_date(item.created_at), "type": "상점", "pay": "ssal",
             "title": f"[쌀포인트] {product.product_name} ×{item.quantity}", "buyer": nickname,

@@ -23,6 +23,7 @@ class StoreProductResponse(BaseModel):
     sale_mode: Literal["limited", "regular"] = "limited"   # 일반(regular)은 개수 없이 계속 판다 — stock은 0
     catalog_item_id: Optional[int] = None                  # 등록 상품 (장부용)
     created_at: datetime
+    sold_count: Optional[int] = None                       # 관리자 목록에서만: 지금까지 팔린 개수 (구매 취소 제외)
 
     class Config:
         from_attributes = True

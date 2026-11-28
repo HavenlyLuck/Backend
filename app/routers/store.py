@@ -5,7 +5,7 @@ from typing import Optional, Literal
 from datetime import datetime, timezone
 
 from app.database import get_db
-from app.core.dependencies import get_current_admin, get_current_user, get_optional_user
+from app.core.dependencies import get_current_admin, get_current_user, get_optional_user, has_admin_access
 from app.models.user import User
 from app.schemas.store import (
     STORE_CATEGORIES, StoreCategory, StoreProductResponse, StoreProductDetailResponse,
@@ -116,8 +116,17 @@ def list_store_products(
     # 기본은 품절 상품을 숨긴다. 관리자 화면·상품 상세처럼 품절 상품도 필요하면 true
     include_sold_out: bool = Query(False),
     db: Session = Depends(get_db),
+    viewer: Optional[User] = Depends(get_optional_user),
 ):
-    return store_crud.get_store_products(db, pay_type=pay_type, include_sold_out=include_sold_out)
+    products = store_crud.get_store_products(db, pay_type=pay_type, include_sold_out=include_sold_out)
+    if not has_admin_access(viewer):
+        return products
+    # 관리자(OTP 인증)에게는 상품마다 팔린 개수를 함께 준다 — 상품 게시 "N개 판매" · 안 팔리고 끝난 상품 구분용
+    sold = store_crud.get_sold_counts(db, [p.store_product_id for p in products])
+    return [
+        StoreProductResponse.model_validate(p).model_copy(update={"sold_count": sold.get(p.store_product_id, 0)})
+        for p in products
+    ]
 
 
 # 상점 상품 상세 조회

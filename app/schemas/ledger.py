@@ -6,6 +6,14 @@ from pydantic import BaseModel
 from app.schemas.finance import ExpenseResponse
 
 
+# 쿠지 결제 1건으로 나간 상 — 라스트원은 grade "라스트원". 쌀포인트 상은 point_amount(1개당 적립 쌀포인트)
+class LedgerKujiPrize(BaseModel):
+    grade: str
+    name: str
+    quantity: int
+    point_amount: Optional[int] = None
+
+
 # 판매 한 줄 — 개인정보 없이 user_id만
 class LedgerSale(BaseModel):
     id: str
@@ -19,6 +27,7 @@ class LedgerSale(BaseModel):
     amount_krw: int                  # 카드 결제 금액(원)
     amount_ssal: int                 # 쓴 쌀포인트 (쌀포인트 상점 · 카드 상점 할인)
     status: Literal["pending", "confirmed", "refunded"]
+    prizes: Optional[list[LedgerKujiPrize]] = None   # kind=kuji만: 이 결제로 나간 상 (환불된 결제는 빈 목록)
 
 
 # 물건이 나간 기록 — 반품은 quantity 음수
