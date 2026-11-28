@@ -16,7 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.models.free_ticket import FreeTicket
 from app.models.inventory import InventoryItem, InventoryReceipt
-from app.models.kuji import KujiPrize, KujiSet
+from app.models.kuji import KujiPrize, KujiSet, KujiTicket
 from app.models.payment import Payment
 from app.models.point import PointTransaction
 from app.models.raffle import RaffleEntry, RaffleProduct
@@ -24,6 +24,7 @@ from app.models.storage import StorageItem
 from app.models.store import StoreProduct
 from app.crud import finance as finance_crud
 from app.crud import inventory as inventory_crud
+from app.crud import store as store_crud
 
 KST = timedelta(hours=9)
 REFUNDED_PAYMENT = ("cancel_requested", "cancelled", "cancel_failed")
@@ -106,6 +107,8 @@ def get_ledger(db: Session, start: date, end: date) -> dict:
         .filter(StorageItem.shipping_payment_id.in_(shipping_ids), StorageItem.status == "shipped")
     } if shipping_ids else set()
 
+    kuji_prizes = _kuji_prizes_by_payment(db, [p for p in payments if p.order_type == "kuji_draw" and p.status not in REFUNDED_PAYMENT], kujis)
+
     def store_catalog(s: Optional[StoreProduct], store_id: int) -> Optional[int]:
         return (s.catalog_item_id if s else None) or links.get(("store", store_id))
 
@@ -129,7 +132,7 @@ def get_ledger(db: Session, start: date, end: date) -> dict:
             kuji = kujis.get(p.target_id)
             round_keys.add(("kuji", p.target_id))
             row.update(kind="kuji", round_id=f"kuji-{p.target_id}", title=kuji.title if kuji else p.order_name,
-                       status="refunded" if refunded else "confirmed")
+                       status="refunded" if refunded else "confirmed", prizes=kuji_prizes.get(p.payment_id, []))
         elif p.order_type == "store_purchase":
             s = stores.get(p.target_id)
             round_keys.add(("store", p.target_id))
@@ -317,6 +320,51 @@ def get_ledger(db: Session, start: date, end: date) -> dict:
     }
 
 
+# 쿠지 결제마다 그 결제로 나간 상 — [{grade, name, quantity, point_amount}] (등급 순, 라스트원은 맨 뒤)
+# 결제에 고른 제비 번호(payments.ticket_numbers)가 남아 있어서, 그 번호의 제비를 그 사람이 뽑았으면 그 결제로 나간 상이다.
+# 쌀포인트 상도 제비로 알 수 있다. 라스트원은 같은 결제로 보관함에 들어간 kuji_prize_id 없는 항목
+def _kuji_prizes_by_payment(db: Session, payments: list[Payment], kujis: dict) -> dict[str, list[dict]]:
+    if not payments:
+        return {}
+    numbers = {(p.target_id, p.user_id, n): p.payment_id for p in payments for n in (p.ticket_numbers or [])}
+    if not numbers:
+        return {}
+    counts: dict[str, dict[int, int]] = defaultdict(lambda: defaultdict(int))
+    prizes: dict[int, KujiPrize] = {}
+    for ticket, prize in (
+        db.query(KujiTicket, KujiPrize)
+        .join(KujiPrize, KujiTicket.kuji_prize_id == KujiPrize.kuji_prize_id)
+        .filter(
+            KujiTicket.kuji_set_id.in_({p.target_id for p in payments}),
+            KujiTicket.drawn_by_user_id.in_({p.user_id for p in payments}),
+            KujiTicket.ticket_number.in_({n for (_, _, n) in numbers}),
+        )
+    ):
+        pid = numbers.get((ticket.kuji_set_id, ticket.drawn_by_user_id, ticket.ticket_number))
+        if pid:
+            counts[pid][prize.kuji_prize_id] += 1
+            prizes[prize.kuji_prize_id] = prize
+    last_one = {
+        pid for (pid,) in db.query(StorageItem.payment_id).filter(
+            StorageItem.payment_id.in_([p.payment_id for p in payments]),
+            StorageItem.source == "kuji", StorageItem.kuji_prize_id.is_(None),
+        )
+    }
+    out: dict[str, list[dict]] = {}
+    for p in payments:
+        rows = [
+            {"grade": prizes[prize_id].grade, "name": prizes[prize_id].name, "quantity": n,
+             "point_amount": prizes[prize_id].point_amount}
+            for prize_id, n in sorted(counts[p.payment_id].items(), key=lambda kv: prizes[kv[0]].sort_order)
+        ]
+        if p.payment_id in last_one:
+            kuji = kujis.get(p.target_id)
+            rows.append({"grade": LAST_ONE_GRADE, "name": (kuji.last_one_name if kuji else None) or "라스트원상",
+                         "quantity": 1, "point_amount": None})
+        out[p.payment_id] = rows
+    return out
+
+
 def _rounds(db: Session, keys: set[tuple[str, int]], links: dict) -> list[dict]:
     ids: dict[str, set[int]] = defaultdict(set)
     for kind, rid in keys:
@@ -371,18 +419,10 @@ def _rounds(db: Session, keys: set[tuple[str, int]], links: dict) -> list[dict]:
 
     if ids["store"]:
         store_ids = list(ids["store"])
-        sold = dict(
-            db.query(StorageItem.store_product_id, func.sum(StorageItem.quantity))
-            .filter(StorageItem.store_product_id.in_(store_ids))
-            .group_by(StorageItem.store_product_id)
-        )
-        coupons = dict(
-            db.query(FreeTicket.store_product_id, func.count(FreeTicket.free_ticket_id))
-            .filter(FreeTicket.store_product_id.in_(store_ids))
-            .group_by(FreeTicket.store_product_id)
-        )
+        # 보관함 수량 + 쌀 응모권 상품 장수 — 관리자 상점 목록의 sold_count와 같은 함수
+        sold = store_crud.get_sold_counts(db, store_ids)
         for s in db.query(StoreProduct).filter(StoreProduct.store_product_id.in_(store_ids)):
-            sold_n = int(sold.get(s.store_product_id) or 0) + int(coupons.get(s.store_product_id) or 0)
+            sold_n = sold.get(s.store_product_id, 0)
             regular = s.sale_mode == "regular"
             status = "deleted" if s.deleted_at else ("on_sale" if regular or s.stock > 0 else "sold_out")
             rounds.append({

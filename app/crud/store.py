@@ -6,6 +6,7 @@ from typing import Optional
 from app.models.store import StoreProduct
 from app.models.raffle import RaffleProduct
 from app.models.free_ticket import FreeTicket
+from app.models.storage import StorageItem
 from app.models.user import User
 from app.crud import storage as storage_crud
 from app.crud import inventory as inventory_crud
@@ -69,6 +70,25 @@ def get_store_products(db: Session, pay_type: Optional[str] = None, include_sold
         # 일반 상품은 개수 없이 파니(stock 0) 품절로 빼지 않는다
         query = query.filter(or_(StoreProduct.stock > 0, StoreProduct.sale_mode == "regular", funding))
     return query.order_by(StoreProduct.created_at.desc()).all()
+
+
+# 상점 상품별 지금까지 팔린 개수 — 보관함 수량 + 쌀 응모권(쿠폰) 상품 장수. 구매 취소하면 보관함 행이 지워져 빠진다.
+# 장부(crud/ledger.py _rounds)의 tickets_sold와 같은 기준
+def get_sold_counts(db: Session, store_product_ids: list[int]) -> dict[int, int]:
+    if not store_product_ids:
+        return {}
+    counts: dict[int, int] = {}
+    for rows in (
+        db.query(StorageItem.store_product_id, func.sum(StorageItem.quantity))
+        .filter(StorageItem.store_product_id.in_(store_product_ids))
+        .group_by(StorageItem.store_product_id),
+        db.query(FreeTicket.store_product_id, func.count(FreeTicket.free_ticket_id))
+        .filter(FreeTicket.store_product_id.in_(store_product_ids))
+        .group_by(FreeTicket.store_product_id),
+    ):
+        for store_product_id, n in rows:
+            counts[store_product_id] = counts.get(store_product_id, 0) + int(n or 0)
+    return counts
 
 
 # include_deleted=True: 이미 결제된 주문의 응답을 다시 만들 때처럼, 삭제된 상품도 찾아야 하는 경우

@@ -2,7 +2,7 @@ from collections import defaultdict
 from datetime import date, datetime, timezone
 from typing import Optional
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session
 
 from app.models.inventory import InventoryItem, InventoryReceipt, InventoryLink
@@ -25,78 +25,126 @@ class InventoryError(Exception):
     pass
 
 
-def _link_usage(db: Session, links: list[InventoryLink]) -> dict[int, dict]:
-    """link_id → {reserved, sold, product_type(raffle|kuji|store), product_id, product_name}"""
-    by_type: dict[str, list[InventoryLink]] = defaultdict(list)
-    for link in links:
-        by_type[link.product_type].append(link)
-    out: dict[int, dict] = {}
+# 상품 등록 때 품목만 만들려고 넣는 빈 입고 기록 (프론트 lib/catalog.ts) — 입고 수량 · 평균 단가에 넣지 않는다
+PLACEHOLDER_MEMO = "상품 등록 (재고 아님)"
 
-    if by_type["raffle"]:
-        ids = [l.product_id for l in by_type["raffle"]]
-        raffles = {r.raffle_product_id: r for r in db.query(RaffleProduct).filter(RaffleProduct.raffle_product_id.in_(ids))}
-        for l in by_type["raffle"]:
-            r = raffles.get(l.product_id)
-            status = r.status if r else "cancelled"
-            out[l.link_id] = {
-                "reserved": 1 if status == "open" else 0,
-                "sold": 1 if status == "completed" else 0,
-                "product_type": "raffle", "product_id": l.product_id,
-                "product_name": f"[응모] {r.product_name}" if r else "(삭제된 응모)",
-            }
 
-    if by_type["store"]:
-        ids = [l.product_id for l in by_type["store"]]
-        products = {p.store_product_id: p for p in db.query(StoreProduct).filter(StoreProduct.store_product_id.in_(ids))}
-        # 보관함에 들어간 수량 = 팔린 수량 (구매 취소하면 보관함에서 빠지고 재고는 상품 stock으로 돌아간다)
-        sold = dict(
-            db.query(StorageItem.store_product_id, func.sum(StorageItem.quantity))
-            .filter(StorageItem.store_product_id.in_(ids))
-            .group_by(StorageItem.store_product_id)
-        )
-        for l in by_type["store"]:
-            p = products.get(l.product_id)
-            label = "[상점]" if p and p.pay_type == "cash" else "[쌀포인트 상점]"
-            out[l.link_id] = {
-                "reserved": p.stock if p else 0,
-                "sold": int(sold.get(l.product_id) or 0),
-                "product_type": "store", "product_id": l.product_id,
-                "product_name": f"{label} {p.product_name}" if p else "(삭제된 상품)",
-            }
+def is_placeholder(r: InventoryReceipt) -> bool:
+    return r.memo == PLACEHOLDER_MEMO and r.unit_cost == 0 and r.quantity == 1
 
-    if by_type["kuji_prize"]:
-        ids = [l.product_id for l in by_type["kuji_prize"]]
-        rows = {
-            prize.kuji_prize_id: (prize, kuji)
-            for prize, kuji in db.query(KujiPrize, KujiSet)
-            .join(KujiSet, KujiPrize.kuji_set_id == KujiSet.kuji_set_id)
-            .filter(KujiPrize.kuji_prize_id.in_(ids))
-        }
-        for l in by_type["kuji_prize"]:
-            prize, kuji = rows.get(l.product_id, (None, None))
-            if not prize:
-                out[l.link_id] = {"reserved": 0, "sold": 0, "product_type": "kuji", "product_id": 0, "product_name": "(삭제된 쿠지)"}
-                continue
-            out[l.link_id] = {
-                # 판매 종료된 쿠지의 안 뽑힌 상품은 재고로 돌아간다
-                "reserved": prize.remaining_quantity if kuji.status != "closed" else 0,
-                "sold": prize.quantity - prize.remaining_quantity,
-                "product_type": "kuji", "product_id": kuji.kuji_set_id,
-                "product_name": f"[쿠지] {kuji.title} {prize.grade}상",
-            }
 
-    if by_type["kuji_last_one"]:
-        ids = [l.product_id for l in by_type["kuji_last_one"]]
-        kujis = {k.kuji_set_id: k for k in db.query(KujiSet).filter(KujiSet.kuji_set_id.in_(ids))}
-        for l in by_type["kuji_last_one"]:
-            k = kujis.get(l.product_id)
-            won = bool(k and k.last_one_user_id)
-            out[l.link_id] = {
-                "reserved": 1 if k and not won and k.status != "closed" else 0,
-                "sold": 1 if won else 0,
-                "product_type": "kuji", "product_id": l.product_id,
-                "product_name": f"[쿠지] {k.title} 라스트원상" if k else "(삭제된 쿠지)",
-            }
+# 상품이 어느 등록 상품(품목)인지 — 상품에 저장한 catalog_item_id가 먼저, 없으면 예전 방식 inventory_links.
+# 장부(crud/ledger.py)와 같은 기준이다. 한 상품은 한 품목에만 들어가서 두 번 세지 않는다
+def _owner(catalog_item_id: Optional[int], link_map: dict, product_type: str, product_id: int) -> Optional[int]:
+    return catalog_item_id or link_map.get((product_type, product_id))
+
+
+def _converted(db: Session, column, ids, *extra) -> dict[int, int]:
+    """보관 기한이 지나 쌀 응모권으로 바뀐 보관함 수량 (물건이 회사에 남는다) — column 값별 합계"""
+    if not ids:
+        return {}
+    return {
+        k: int(n or 0) for k, n in db.query(column, func.sum(StorageItem.quantity))
+        .filter(column.in_(ids), StorageItem.status == "converted", *extra)
+        .group_by(column)
+    }
+
+
+def _product_usage(db: Session, item_ids) -> dict[int, list[dict]]:
+    """품목 id → 그 품목으로 올린 상품들의 [{reserved, sold, product_type(raffle|kuji|store), product_id, product_name}]
+
+    sold(나간 수)는 장부 outflows 합계와 같다 — 응모 당첨 1 · 쿠지 실물 상 뽑힌 수 · 라스트원 1 · 상점 보관함 수량에서
+    보관 기한이 지나 쌀 응모권으로 바뀐 것을 뺀다 (보관함에서 구매 취소한 상품은 보관함 행이 지워져 이미 빠져 있다).
+    reserved(판매 중)는 진행 중인 응모 1 · 진행 중인 쿠지 판의 남은 실물 상 · 한정 상점 상품의 stock. 일반 판매는 0
+    """
+    ids = {i for i in item_ids if i is not None}
+    out: dict[int, list[dict]] = defaultdict(list)
+    if not ids:
+        return out
+    link_map: dict[tuple[str, int], int] = {}
+    linked: dict[str, set[int]] = defaultdict(set)
+    for l in db.query(InventoryLink).filter(InventoryLink.item_id.in_(ids)):
+        link_map.setdefault((l.product_type, l.product_id), l.item_id)
+        linked[l.product_type].add(l.product_id)
+
+    # 응모
+    raffles = []
+    for r in db.query(RaffleProduct).filter(or_(
+        RaffleProduct.catalog_item_id.in_(ids), RaffleProduct.raffle_product_id.in_(linked["raffle"]),
+    )):
+        owner = _owner(r.catalog_item_id, link_map, "raffle", r.raffle_product_id)
+        if owner in ids:
+            raffles.append((owner, r))
+    conv = _converted(db, StorageItem.raffle_product_id, [r.raffle_product_id for _, r in raffles], StorageItem.source == "raffle")
+    for owner, r in raffles:
+        out[owner].append({
+            "reserved": 1 if r.status in ("open", "funding") else 0,
+            "sold": (1 if r.status == "completed" else 0) - conv.get(r.raffle_product_id, 0),
+            "product_type": "raffle", "product_id": r.raffle_product_id,
+            "product_name": f"[응모] {r.product_name}",
+        })
+
+    # 상점 (카드 · 쌀포인트) — 보관함에 들어간 수량이 팔린 수량
+    stores = []
+    for p in db.query(StoreProduct).filter(or_(
+        StoreProduct.catalog_item_id.in_(ids), StoreProduct.store_product_id.in_(linked["store"]),
+    )):
+        owner = _owner(p.catalog_item_id, link_map, "store", p.store_product_id)
+        if owner in ids:
+            stores.append((owner, p))
+    store_ids = [p.store_product_id for _, p in stores]
+    sold = {
+        k: int(n or 0) for k, n in db.query(StorageItem.store_product_id, func.sum(StorageItem.quantity))
+        .filter(StorageItem.store_product_id.in_(store_ids), StorageItem.source == "store", StorageItem.status != "converted")
+        .group_by(StorageItem.store_product_id)
+    } if store_ids else {}
+    for owner, p in stores:
+        label = "[상점]" if p.pay_type == "cash" else "[쌀포인트 상점]"
+        out[owner].append({
+            "reserved": 0 if p.sale_mode == "regular" or p.deleted_at is not None else p.stock,
+            "sold": sold.get(p.store_product_id, 0),
+            "product_type": "store", "product_id": p.store_product_id,
+            "product_name": f"{label} {p.product_name}",
+        })
+
+    # 쿠지 실물 상 (쌀포인트 상은 실물이 아니라 뺀다)
+    prizes = []
+    for prize, kuji in (
+        db.query(KujiPrize, KujiSet).join(KujiSet, KujiPrize.kuji_set_id == KujiSet.kuji_set_id)
+        .filter(or_(KujiPrize.catalog_item_id.in_(ids), KujiPrize.kuji_prize_id.in_(linked["kuji_prize"])))
+    ):
+        owner = _owner(prize.catalog_item_id, link_map, "kuji_prize", prize.kuji_prize_id)
+        if owner in ids and not prize.point_amount:
+            prizes.append((owner, prize, kuji))
+    conv = _converted(db, StorageItem.kuji_prize_id, [p.kuji_prize_id for _, p, _ in prizes])
+    for owner, prize, kuji in prizes:
+        out[owner].append({
+            # 판매 종료된 쿠지의 안 뽑힌 상품은 재고로 돌아간다
+            "reserved": prize.remaining_quantity if kuji.status != "closed" else 0,
+            "sold": prize.quantity - prize.remaining_quantity - conv.get(prize.kuji_prize_id, 0),
+            "product_type": "kuji", "product_id": kuji.kuji_set_id,
+            "product_name": f"[쿠지] {kuji.title} {prize.grade}상",
+        })
+
+    # 쿠지 라스트원상
+    last_ones = []
+    for k in db.query(KujiSet).filter(
+        KujiSet.last_one_name.isnot(None),
+        or_(KujiSet.last_one_catalog_item_id.in_(ids), KujiSet.kuji_set_id.in_(linked["kuji_last_one"])),
+    ):
+        owner = _owner(k.last_one_catalog_item_id, link_map, "kuji_last_one", k.kuji_set_id)
+        if owner in ids:
+            last_ones.append((owner, k))
+    conv = _converted(db, StorageItem.kuji_set_id, [k.kuji_set_id for _, k in last_ones],
+                      StorageItem.source == "kuji", StorageItem.kuji_prize_id.is_(None))
+    for owner, k in last_ones:
+        won = k.last_one_user_id is not None
+        out[owner].append({
+            "reserved": 1 if not won and k.status != "closed" else 0,
+            "sold": (1 if won else 0) - conv.get(k.kuji_set_id, 0),
+            "product_type": "kuji", "product_id": k.kuji_set_id,
+            "product_name": f"[쿠지] {k.title} 라스트원상",
+        })
     return out
 
 
@@ -112,17 +160,14 @@ def _summaries(db: Session, items: list[InventoryItem], with_detail: bool = Fals
     receipts: dict[int, list[InventoryReceipt]] = defaultdict(list)
     for r in db.query(InventoryReceipt).filter(InventoryReceipt.item_id.in_(ids)):
         receipts[r.item_id].append(r)
-    links: dict[int, list[InventoryLink]] = defaultdict(list)
-    all_links = db.query(InventoryLink).filter(InventoryLink.item_id.in_(ids)).all()
-    for l in all_links:
-        links[l.item_id].append(l)
-    usage = _link_usage(db, all_links)
+    usage = _product_usage(db, ids)
 
     result = []
     for item in items:
         rs = receipts[item.item_id]
-        used = [usage[l.link_id] for l in links[item.item_id]]
-        total = sum(r.quantity for r in rs)
+        bought = [r for r in rs if not is_placeholder(r)]   # 등록용 빈 기록은 입고로 세지 않는다
+        used = usage[item.item_id]
+        total = sum(r.quantity for r in bought)
         reserved = sum(u["reserved"] for u in used)
         sold = sum(u["sold"] for u in used)
         data = {
@@ -134,9 +179,10 @@ def _summaries(db: Session, items: list[InventoryItem], with_detail: bool = Fals
             "total_received": total,
             "reserved": reserved,
             "sold": sold,
+            # 자르지 않는다 — 일반 판매는 재고가 없어도 주문을 받으므로 모자란 만큼 음수로 보인다
             "available": total - reserved - sold,
-            "avg_unit_cost": average_cost(rs),
-            "last_received_at": max((r.received_at for r in rs), default=None),
+            "avg_unit_cost": average_cost(bought),
+            "last_received_at": max((r.received_at for r in bought), default=None),
         }
         if with_detail:
             data["receipts"] = sorted(rs, key=lambda r: (r.received_at, r.receipt_id), reverse=True)
@@ -218,10 +264,21 @@ def check_store_stock_increase(db: Session, store_product_id: int, delta: int) -
 
 
 def get_item_for_product(db: Session, product_type: str, product_id: int) -> Optional[dict]:
-    link = get_link(db, product_type, product_id)
-    if not link:
-        return None
-    return _summaries(db, [db.get(InventoryItem, link.item_id)])[0]
+    # 상품에 저장한 등록 상품(catalog_item_id)이 먼저, 없으면 예전 재고 연결
+    catalog_id = None
+    if product_type == "raffle":
+        catalog_id = db.query(RaffleProduct.catalog_item_id).filter(RaffleProduct.raffle_product_id == product_id).scalar()
+    elif product_type == "store":
+        catalog_id = db.query(StoreProduct.catalog_item_id).filter(StoreProduct.store_product_id == product_id).scalar()
+    elif product_type == "kuji_prize":
+        catalog_id = db.query(KujiPrize.catalog_item_id).filter(KujiPrize.kuji_prize_id == product_id).scalar()
+    elif product_type == "kuji_last_one":
+        catalog_id = db.query(KujiSet.last_one_catalog_item_id).filter(KujiSet.kuji_set_id == product_id).scalar()
+    if catalog_id is None:
+        link = get_link(db, product_type, product_id)
+        catalog_id = link.item_id if link else None
+    item = db.get(InventoryItem, catalog_id) if catalog_id is not None else None
+    return _summaries(db, [item])[0] if item else None
 
 
 # ── 입고 ──
@@ -283,11 +340,16 @@ def delete_item(db: Session, item_id: int) -> bool:
     return True
 
 
-# 입고 기록을 고치거나 지울 때 이미 상품에 올렸거나 팔린 수량보다 입고 합계가 적어지면 안 된다
+# 입고 기록을 고치거나 지울 때 이미 상품에 올렸거나 팔린 수량보다 입고 합계가 적어지면 안 된다.
+# next_quantity: 바꾼 뒤 이 기록이 입고 합계에 더하는 수량 (지우면 0). 등록용 빈 기록은 원래 0으로 센다
+# 이미 모자란 품목(일반 판매로 재고보다 많이 판 경우)은 합계를 줄이는 것만 막는다
 def _check_receipt_change(db: Session, receipt: InventoryReceipt, next_quantity: int) -> None:
+    current = 0 if is_placeholder(receipt) else receipt.quantity
+    if next_quantity >= current:
+        return
     s = _lock_item_summary(db, receipt.item_id)
     used = s["reserved"] + s["sold"]
-    if s["total_received"] - receipt.quantity + next_quantity < used:
+    if s["total_received"] - current + next_quantity < used:
         raise InventoryError(f"이 품목은 이미 {used}개를 상품에 올렸거나 팔았어요. 입고 합계가 {used}개보다 적어질 수 없습니다")
 
 
@@ -295,8 +357,13 @@ def update_receipt(db: Session, receipt_id: int, changes: dict) -> Optional[Inve
     receipt = db.query(InventoryReceipt).filter(InventoryReceipt.receipt_id == receipt_id).with_for_update().first()
     if not receipt:
         return None
-    if "quantity" in changes:
-        _check_receipt_change(db, receipt, changes["quantity"])
+    if changes.keys() & {"quantity", "unit_cost", "memo"}:
+        after = InventoryReceipt(
+            quantity=changes.get("quantity", receipt.quantity),
+            unit_cost=changes.get("unit_cost", receipt.unit_cost),
+            memo=changes.get("memo", receipt.memo),
+        )
+        _check_receipt_change(db, receipt, 0 if is_placeholder(after) else after.quantity)
     for key, value in changes.items():
         setattr(receipt, key, value)
     db.commit()
@@ -319,14 +386,6 @@ def delete_receipt(db: Session, receipt_id: int) -> bool:
         db.query(InventoryItem).filter(InventoryItem.item_id == item_id).delete()
     db.commit()
     return True
-
-
-# 손익 계산용 — 품목별 평균 원가와 상품 → 품목 연결
-def get_avg_costs(db: Session) -> dict[int, int]:
-    receipts: dict[int, list[InventoryReceipt]] = defaultdict(list)
-    for r in db.query(InventoryReceipt):
-        receipts[r.item_id].append(r)
-    return {item_id: average_cost(rs) for item_id, rs in receipts.items()}
 
 
 # 등록 상품별 매입 평균 단가 — 단가 0인 기록(등록 때 만든 빈 기록)은 뺀다. 매입 기록이 없으면 빠진다
