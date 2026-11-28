@@ -137,6 +137,39 @@ def get_unused_tickets(db: Session, user_id: int) -> list[dict]:
     ]
 
 
+# 보관함 — 아직 쓰지 않은 무료 응모권을 받은 경로(종류 · 관련 회원)별로 묶은 장수. 많이 모여도 응답이 작다
+# 처음 받은 순서대로, 각 묶음은 처음·마지막으로 받은 시각을 함께 준다
+def get_unused_ticket_groups(db: Session, user_id: int) -> list[dict]:
+    rows = (
+        db.query(
+            FreeTicket.kind,
+            FreeTicket.related_user_id,
+            func.count(FreeTicket.free_ticket_id),
+            func.min(FreeTicket.created_at),
+            func.max(FreeTicket.created_at),
+        )
+        .filter(FreeTicket.user_id == user_id, FreeTicket.raffle_entry_id.is_(None))
+        .group_by(FreeTicket.kind, FreeTicket.related_user_id)
+        .all()
+    )
+    related_ids = {r[1] for r in rows if r[1] is not None}
+    nicknames = dict(
+        db.query(User.user_id, User.nickname).filter(User.user_id.in_(related_ids)).all()
+    ) if related_ids else {}
+    groups = [
+        {
+            "kind": kind,
+            "related_nickname": nicknames.get(related_id) if related_id is not None else None,
+            "count": int(count),
+            "first_at": first_at,
+            "last_at": last_at,
+        }
+        for kind, related_id, count, first_at, last_at in rows
+    ]
+    groups.sort(key=lambda g: (g["first_at"] is None, g["first_at"]))
+    return groups
+
+
 def lock_unused_tickets(db: Session, user_id: int, count: int) -> list[FreeTicket]:
     return (
         db.query(FreeTicket)

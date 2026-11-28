@@ -349,18 +349,24 @@ def refresh(body: RefreshRequest, db: Session = Depends(get_db)):
     if payload.get("type") != "refresh":
         raise HTTPException(status_code=401, detail="유효하지 않은 리프레시 토큰입니다")
 
+    # 남은 시간이 지금 정한 로그인 유지 시간보다 길면 예전(14일) 기준으로 받은 토큰이다 — 다시 로그인하게 한다
+    left_minutes = (payload.get("exp", 0) - datetime.now(timezone.utc).timestamp()) / 60
+    if left_minutes > settings.REFRESH_TOKEN_EXPIRE_MINUTES + 5:
+        raise HTTPException(status_code=401, detail="로그인 시간이 지났습니다. 다시 로그인해주세요")
+
     user = db.query(User).filter(User.user_id == user_id, User.deleted_at.is_(None)).first()
     if not user:
         raise HTTPException(status_code=401, detail="사용자를 찾을 수 없습니다")
 
     # 2단계 인증 표시는 리프레시 토큰에 있던 것만 이어받는다 (OTP를 DB에서 해제했으면 떼어 낸다)
     mfa = payload.get("mfa") is True and user.is_admin and user.totp_enabled_at is not None
+    # 액세스 토큰도 리프레시 토큰이 끝나는 시각을 넘기지 않는다 (로그인 유지 시간이 지나면 바로 로그아웃되게)
     access_token = create_token({
         "sub": str(user.user_id),
         "type": "user",
         "is_admin": user.is_admin,
         **({"mfa": True} if mfa else {}),
-    })
+    }, expires_delta=max(1, min(settings.ACCESS_TOKEN_EXPIRE_MINUTES, int(left_minutes))))
 
     return {"access_token": access_token, "token_type": "bearer", "is_admin": user.is_admin}
 
