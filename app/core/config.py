@@ -10,7 +10,8 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
-    REFRESH_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 14  # 14일
+    # 로그인 유지 시간 — 리프레시 토큰은 로그인할 때 한 번만 만들고 다시 늘리지 않으므로, 로그인하고 이만큼 지나면 로그아웃된다
+    REFRESH_TOKEN_EXPIRE_MINUTES: int = 60 * 24  # 1일
     # 앞단 프록시 수 — 접속 IP는 X-Forwarded-For의 뒤에서 이 번째 값을 쓴다 (app/core/dependencies.py client_ip)
     # Azure App Service만 거치면 1, Cloudflare → Azure 순으로 거치면 2
     TRUSTED_PROXY_COUNT: int = 1

@@ -6,7 +6,7 @@ from app.core.dependencies import get_current_user
 from app.crud import referral as referral_crud
 from app.database import get_db
 from app.models.user import User
-from app.schemas.referral import FreeTicketResponse, ReferralRegisterRequest, ReferralSummaryResponse
+from app.schemas.referral import FreeTicketGroupResponse, FreeTicketResponse, ReferralRegisterRequest, ReferralSummaryResponse
 
 router = APIRouter()
 
@@ -33,3 +33,9 @@ def register_referrer(body: ReferralRegisterRequest, db: Session = Depends(get_d
 @router.get("/tickets", response_model=list[FreeTicketResponse])
 def list_my_free_tickets(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return referral_crud.get_unused_tickets(db, user.user_id)
+
+
+# 보관함 — 아직 쓰지 않은 무료 응모권을 받은 경로별로 묶어서 (장수가 많아도 목록이 짧게)
+@router.get("/tickets/groups", response_model=list[FreeTicketGroupResponse])
+def list_my_free_ticket_groups(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    return referral_crud.get_unused_ticket_groups(db, user.user_id)

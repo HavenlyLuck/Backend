@@ -23,3 +23,12 @@ class FreeTicketResponse(BaseModel):
     kind: Literal["first_purchase", "referral", "signup_event", "store_purchase", "idea_contest", "storage_convert", "review_photo"]
     related_nickname: Optional[str] = None
     created_at: datetime
+
+
+# 보관함 — 받은 경로(종류 · 관련 회원)별로 묶은 쌀 응모권
+class FreeTicketGroupResponse(BaseModel):
+    kind: Literal["first_purchase", "referral", "signup_event", "store_purchase", "idea_contest", "storage_convert", "review_photo"]
+    related_nickname: Optional[str] = None
+    count: int
+    first_at: Optional[datetime] = None
+    last_at: Optional[datetime] = None

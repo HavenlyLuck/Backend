@@ -11,6 +11,7 @@ from app.schemas.store import (
     STORE_CATEGORIES, StoreCategory, StoreProductResponse, StoreProductDetailResponse,
     StorePurchaseRequest, StorePurchaseResponse, StoreStockUpdate,
 )
+from app.schemas.raffle import RaffleEntryCreateResponse, FreeTicketEntryRequest
 from app.services.cloudinary import upload_image
 from app.crud import store as store_crud
 from app.crud import point as point_crud
@@ -138,6 +139,24 @@ def get_store_product(
         if viewer:
             response.bought_this_week = store_crud.tickets_bought_this_week(db, viewer.user_id)
     return response
+
+
+# 보관함 쌀 응모권으로 응모 전환 모금에 참여 — 결제 없이 응모권을 이 상품의 모금 응모권으로 쓴다.
+# 진행 중인 모금이 없으면 새로 열고, 이번 응모로 1/3을 넘으면 응모 상품으로 전환된다
+@router.post("/{store_product_id}/funding/free", response_model=RaffleEntryCreateResponse)
+def fund_with_free_tickets(
+    store_product_id: int,
+    body: FreeTicketEntryRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    try:
+        entry = raffle_crud.fund_with_free_tickets(db, store_product_id, user.user_id, body.ticket_count)
+    except raffle_crud.RaffleEntryError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+    entry.total_ticket_count = raffle_crud.get_user_total_ticket_count(db, entry.raffle_product_id, user.user_id)
+    return entry
 
 
 # 쌀포인트 상점 구매 — 쌀포인트 차감, 재고 차감, 보관함 적재를 한 트랜잭션으로 처리

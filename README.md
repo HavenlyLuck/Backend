@@ -40,7 +40,7 @@ uvicorn app.main:app --reload   # http://localhost:8000
 | `SECRET_KEY` | 필수 | JWT 서명 키 |
 | `ALGORITHM` | | JWT 알고리즘 (기본 `HS256`) |
 | `ACCESS_TOKEN_EXPIRE_MINUTES` | | 액세스 토큰 유효 시간 (기본 60분) |
-| `REFRESH_TOKEN_EXPIRE_MINUTES` | | 리프레시 토큰 유효 시간 (기본 14일) |
+| `REFRESH_TOKEN_EXPIRE_MINUTES` | | 리프레시 토큰 유효 시간 = 로그인 유지 시간 (기본 1일, 지나면 자동 로그아웃) |
 | `CLOUDINARY_CLOUD_NAME`, `CLOUDINARY_API_KEY`, `CLOUDINARY_API_SECRET` | 필수 | 상품·후기 이미지 업로드와 삭제 |
 | `PORTONE_API_SECRET` | | 포트원 V2 API Secret. 없으면 본인인증과 결제가 동작하지 않음 |
 | `PORTONE_STORE_ID` | | 포트원 상점 아이디(`store-xxxx`) |
